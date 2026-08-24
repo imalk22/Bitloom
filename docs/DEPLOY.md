@@ -1,50 +1,61 @@
-# Deploy Bitloom
+# Bitloom deploy
 
-## Important
+## Quick check (everything on Vercel — free)
 
-| Part | Where | Why |
-|------|--------|-----|
-| **Frontend** | **Vercel** | Static Vite app — perfect for Vercel |
-| **Backend** | **Render** (or Railway) | Needs always-on Node + Socket.IO. Vercel serverless **cannot** run our chat/admin sockets reliably |
+Good for testing login, balance, admin credit, and trades. **Live chat / Socket.IO will not work** on Vercel (serverless). Use Render later for full chat.
 
-## 1) Backend on Render (do this first)
+1. Push repo to GitHub.
+2. [vercel.com](https://vercel.com) → **Add New Project** → import Bitloom.
+3. Framework: Vite. Leave build as `npm run build`, output `dist`.
+4. **Environment variables** (Project → Settings → Environment Variables) — from `backend/serviceAccountKey.json`:
 
-1. Go to https://render.com → New → Web Service → connect `imalk22/Bitloom`
-2. Settings:
-   - **Root Directory:** `backend`
-   - **Build:** `npm install`
-   - **Start:** `npm start`
-3. Environment variables:
-   - `FRONTEND_ORIGIN` = your Vercel URL later (e.g. `https://bitloom.vercel.app`) — for now you can add `http://localhost:5173` and update after Vercel deploy
-   - `FIREBASE_PROJECT_ID` = `tradingnavo-c1de2`
-   - `FIREBASE_CLIENT_EMAIL` = from `serviceAccountKey.json` → `client_email`
-   - `FIREBASE_PRIVATE_KEY` = from `serviceAccountKey.json` → `private_key` (keep `\n` newlines; paste the full key including BEGIN/END)
-4. Deploy → copy URL like `https://bitloom-backend.onrender.com`
-5. Open `/api/health` — should show `"firebase": true`
+| Key | Value |
+|-----|--------|
+| `FIREBASE_PROJECT_ID` | `project_id` from the JSON |
+| `FIREBASE_CLIENT_EMAIL` | `client_email` from the JSON |
+| `FIREBASE_PRIVATE_KEY` | `private_key` from the JSON (keep the `\n` characters) |
 
-## 2) Frontend on Vercel
+Do **not** set `VITE_API_URL` for same-project deploy (frontend calls `/api/...` on the same domain).
 
-1. Go to https://vercel.com → Add New Project → import `imalk22/Bitloom`
-2. Framework: Vite (auto)
-3. Environment variable:
-   - `VITE_API_URL` = `https://bitloom-backend.onrender.com` (your Render URL, no trailing slash)
-4. Deploy
-5. Copy the Vercel URL
+5. Deploy → open `https://YOUR-APP.vercel.app/api/health`  
+   Expect `"ok": true`, `"firebase": true`, `"vercel": true`.
 
-## 3) Connect them
+6. Firebase Console → **Authentication** → **Settings** → **Authorized domains** → add `YOUR-APP.vercel.app`.
 
-1. Render → update `FRONTEND_ORIGIN` to your Vercel URL (and `http://localhost:5173` if you still develop locally, comma-separated)
-2. Redeploy backend
-3. Firebase Console → Authentication → Settings → Authorized domains → add your Vercel domain
+7. Enable **Email/Password** sign-in if not already.
 
-## Local still works
+### What works on Vercel check deploy
+
+- Signup / login  
+- Balance + admin credit / debit / set / freeze  
+- Open / resolve trades  
+- Markets UI  
+
+### What does **not** work on Vercel
+
+- Live support chat (needs Socket.IO on an always-on host)
+
+---
+
+## Full product later (chat + API always on)
+
+| Piece | Host |
+|--------|------|
+| Frontend | Vercel |
+| Backend + Socket.IO | Render (or Railway / Fly) |
+
+1. Deploy `backend` on Render (root directory `backend`, `npm start`).
+2. Set `FRONTEND_ORIGINS` to your Vercel URL.
+3. Set the same Firebase env vars on Render.
+4. On Vercel, set `VITE_API_URL` to the Render URL (no trailing slash) and redeploy frontend.
+
+---
+
+## Local
 
 ```bash
-# terminal 1
-cd backend && npm run dev
-
-# terminal 2
+cd backend && npm start
 npm run dev
 ```
 
-Without `VITE_API_URL`, frontend uses `http://localhost:3001`.
+API defaults to `http://localhost:3001`.

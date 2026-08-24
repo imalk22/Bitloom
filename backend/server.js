@@ -15,8 +15,8 @@ const money = require("./moneyService");
 
 initFirebaseAdmin();
 
-const app        = express();
-const httpServer = createServer(app);
+const app = express();
+const IS_VERCEL = !!process.env.VERCEL;
 
 const FRONTEND_ORIGINS = (process.env.FRONTEND_ORIGIN || "http://localhost:5173")
   .split(",")
@@ -25,12 +25,19 @@ const FRONTEND_ORIGINS = (process.env.FRONTEND_ORIGIN || "http://localhost:5173"
 
 const PORT = process.env.PORT || 3001;
 
-const io = new Server(httpServer, {
-  cors: { origin: FRONTEND_ORIGINS, methods: ["GET", "POST"] },
-});
-
-app.use(cors({ origin: FRONTEND_ORIGINS }));
+// On Vercel, reflect request origin (same-site frontend + API). Locally, lock to FRONTEND_ORIGIN.
+app.use(cors({
+  origin: IS_VERCEL ? true : FRONTEND_ORIGINS,
+  credentials: true,
+}));
 app.use(express.json());
+
+const httpServer = IS_VERCEL ? null : createServer(app);
+const io = IS_VERCEL
+  ? null
+  : new Server(httpServer, {
+      cors: { origin: FRONTEND_ORIGINS, methods: ["GET", "POST"] },
+    });
 
 // ─── ADMIN ACCOUNTS ───────────────────────────────────────────────────────────
 const ADMINS = {
@@ -72,6 +79,7 @@ function makeMsg(from, text, extra = {}) {
 }
 
 function notifyAllAdmins(event, data) {
+  if (!io) return;
   adminSockets.forEach((_, sid) => {
     const s = io.sockets.sockets.get(sid);
     if (s) s.emit(event, data);
@@ -79,6 +87,7 @@ function notifyAllAdmins(event, data) {
 }
 
 function notifyAdminsByUsername(username, event, data) {
+  if (!io) return;
   adminSockets.forEach((uname, sid) => {
     if (uname === username) {
       const s = io.sockets.sockets.get(sid);
@@ -88,6 +97,7 @@ function notifyAdminsByUsername(username, event, data) {
 }
 
 function addAdminsToRoom(sessionId) {
+  if (!io) return;
   adminSockets.forEach((_, sid) => {
     const s = io.sockets.sockets.get(sid);
     if (s) s.join(sessionId);
@@ -96,6 +106,7 @@ function addAdminsToRoom(sessionId) {
 
 // Push this admin's current P&L config to all their assigned customers
 function pushPnlToAssignedCustomers(adminUsername) {
+  if (!io) return;
   const config = getAdminConfig(adminUsername);
   sessions.forEach((session) => {
     if (session.assignedAdmin === adminUsername && session.status !== "closed") {
@@ -341,16 +352,17 @@ app.get("/api/admin/stats", (req, res) => {
     activeSessions:   all.filter((s) => s.status === "active").length,
     mySessions:       mine.length,
     adminConnections: adminSockets.size,
-    connectedClients: io.engine.clientsCount,
+    connectedClients: io ? io.engine.clientsCount : 0,
     moneyStore:       money.backendMode(),
+    vercel:           IS_VERCEL,
   });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
-//  SOCKET.IO
+//  SOCKET.IO (local / always-on hosts only — not available on Vercel serverless)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-io.on("connection", (socket) => {
+if (io) io.on("connection", (socket) => {
   console.log("[Socket] Connected:", socket.id);
 
   // ── Admin auth ─────────────────────────────────────────────────────────────
@@ -506,18 +518,22 @@ io.on("connection", (socket) => {
     }
     console.log("[Socket] Disconnected:", socket.id);
   });
-});
+}); // end io.on connection
 
 // ═══════════════════════════════════════════════════════════════════════════════
-httpServer.listen(PORT, () => {
-  console.log(`\n🚀 Bitloom Backend  →  http://localhost:${PORT}`);
-  console.log(`📡 CORS origins   →  ${FRONTEND_ORIGINS.join(", ")}`);
-  console.log(`💰 Money store    →  ${money.backendMode()}`);
-  if (!isFirebaseReady()) {
-    console.log("⚠️  Firebase Admin not configured — using local JSON store (backend/data/)");
-    console.log("   Add backend/serviceAccountKey.json to switch to Firestore.");
-  }
-  console.log("\nAdmin accounts:");
-  Object.keys(ADMINS).forEach((u) => console.log(`  ${u}`));
-  console.log("");
-});
+if (!IS_VERCEL && httpServer) {
+  httpServer.listen(PORT, () => {
+    console.log(`\n🚀 Bitloom Backend  →  http://localhost:${PORT}`);
+    console.log(`📡 CORS origins   →  ${FRONTEND_ORIGINS.join(", ")}`);
+    console.log(`💰 Money store    →  ${money.backendMode()}`);
+    if (!isFirebaseReady()) {
+      console.log("⚠️  Firebase Admin not configured — using local JSON store (backend/data/)");
+      console.log("   Add backend/serviceAccountKey.json to switch to Firestore.");
+    }
+    console.log("\nAdmin accounts:");
+    Object.keys(ADMINS).forEach((u) => console.log(`  ${u}`));
+    console.log("");
+  });
+}
+
+module.exports = app;

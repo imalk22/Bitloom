@@ -5,11 +5,15 @@ const DATA_DIR = path.join(__dirname, "data");
 const USERS_FILE = path.join(DATA_DIR, "users.json");
 const LEDGER_FILE = path.join(DATA_DIR, "ledger.json");
 const TRADES_FILE = path.join(DATA_DIR, "trades.json");
+const PENDING_FILE = path.join(DATA_DIR, "pending.json");
 
 function ensureFiles() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-  for (const f of [USERS_FILE, LEDGER_FILE, TRADES_FILE]) {
-    if (!fs.existsSync(f)) fs.writeFileSync(f, f.includes("ledger") || f.includes("trades") ? "[]" : "{}", "utf8");
+  for (const f of [USERS_FILE, LEDGER_FILE, TRADES_FILE, PENDING_FILE]) {
+    if (!fs.existsSync(f)) {
+      const empty = f.includes("users") ? "{}" : (f.includes("pending") ? "{}" : "[]");
+      fs.writeFileSync(f, empty, "utf8");
+    }
   }
 }
 
@@ -157,13 +161,21 @@ function openTrade({ uid, email, amount, pct, symbol, side, sessionId }) {
   const balanceAfter = Math.round((balance - amt) * 100) / 100;
   saveUser(uid, { balance: balanceAfter });
   const tradeId = `t-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  pendingTrades.set(tradeId, { uid, email: normalizeEmail(email), amount: amt, pct: payoutPct, symbol, side, sessionId: sessionId || null, openedAt: Date.now() });
+  const pending = { uid, email: normalizeEmail(email), amount: amt, pct: payoutPct, symbol, side, sessionId: sessionId || null, openedAt: Date.now() };
+  pendingTrades.set(tradeId, pending);
+  const allPending = readJson(PENDING_FILE, {});
+  allPending[tradeId] = pending;
+  writeJson(PENDING_FILE, allPending);
   pushLedger({ uid, email, type: "trade_open", amount: -amt, balanceAfter, adminId: null, note: `Open ${side} ${symbol} ${amt}` });
   return { tradeId, balance: balanceAfter, amount: amt };
 }
 
 function settleTrade({ tradeId, uid, marketWon, wonOverride, assignedAdmin }) {
-  const pending = pendingTrades.get(tradeId);
+  let pending = pendingTrades.get(tradeId);
+  if (!pending) {
+    const allPending = readJson(PENDING_FILE, {});
+    pending = allPending[tradeId];
+  }
   if (!pending) throw moneyError("Trade not found or already settled", 404);
   if (pending.uid !== uid) throw moneyError("Trade does not belong to this user", 403);
   const won = typeof wonOverride === "boolean" ? wonOverride : !!marketWon;
@@ -188,6 +200,9 @@ function settleTrade({ tradeId, uid, marketWon, wonOverride, assignedAdmin }) {
     note: won ? `Settle WIN ${pending.symbol}` : `Settle LOSS ${pending.symbol}`,
   });
   pendingTrades.delete(tradeId);
+  const allPending = readJson(PENDING_FILE, {});
+  delete allPending[tradeId];
+  writeJson(PENDING_FILE, allPending);
   const tradeDoc = {
     id: tradeId,
     symbol: pending.symbol,

@@ -211,7 +211,7 @@ async function openTrade({ uid, email, amount, pct, symbol, side, sessionId }) {
   });
 
   const tradeId = `t-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  pendingTrades.set(tradeId, {
+  const pending = {
     uid,
     email: normalizeEmail(email),
     amount: amt,
@@ -220,7 +220,9 @@ async function openTrade({ uid, email, amount, pct, symbol, side, sessionId }) {
     side,
     sessionId: sessionId || null,
     openedAt: Date.now(),
-  });
+  };
+  pendingTrades.set(tradeId, pending);
+  await db().collection("pendingTrades").doc(tradeId).set(pending);
 
   await writeLedger({
     uid,
@@ -235,7 +237,11 @@ async function openTrade({ uid, email, amount, pct, symbol, side, sessionId }) {
 }
 
 async function settleTrade({ tradeId, uid, marketWon, wonOverride, assignedAdmin }) {
-  const pending = pendingTrades.get(tradeId);
+  let pending = pendingTrades.get(tradeId);
+  if (!pending) {
+    const snap = await db().collection("pendingTrades").doc(tradeId).get();
+    if (snap.exists) pending = snap.data();
+  }
   if (!pending) throw moneyError("Trade not found or already settled", 404);
   if (pending.uid !== uid) throw moneyError("Trade does not belong to this user", 403);
 
@@ -268,6 +274,7 @@ async function settleTrade({ tradeId, uid, marketWon, wonOverride, assignedAdmin
   }
 
   pendingTrades.delete(tradeId);
+  await db().collection("pendingTrades").doc(tradeId).delete().catch(() => {});
 
   const tradeDoc = {
     id: tradeId,
