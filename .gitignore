@@ -1,3 +1,8 @@
+node_modules
+dist
+dist-ssr
+*.local
+
 # Logs
 logs
 *.log
@@ -7,15 +12,13 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
-*.local
-
 # Secrets / local money DB
 backend/serviceAccountKey.json
 backend/.env
 backend/data/
+
+# Local agent / brainstorm scratch
+.superpowers/
 
 # Editor directories and files
 .vscode/*
