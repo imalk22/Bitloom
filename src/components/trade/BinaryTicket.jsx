@@ -5,6 +5,7 @@ import { BINARY_DURATIONS } from "../../lib/market";
 import { formatPrice, formatUsd } from "../../lib/market";
 import Button from "../ui/Button";
 import { useTrading } from "../../context/TradingContext";
+import { API_BASE } from "../../config.js";
 
 export default function BinaryTicket({ symbol, mid }) {
   const { balance, isLoggedIn, handleTradeDone } = useTrading();
@@ -29,7 +30,7 @@ export default function BinaryTicket({ symbol, mid }) {
   }, [pnlMode]);
 
   useEffect(() => {
-    fetch("http://localhost:3001/api/pnl-mode")
+    fetch(`${API_BASE}/api/pnl-mode`)
       .then((res) => res.json())
       .then((data) => setPnlMode(data.mode))
       .catch(() => {});
@@ -47,7 +48,7 @@ export default function BinaryTicket({ symbol, mid }) {
       const marketWon =
         activeTrade.side === "buy" ? exitPrice >= activeTrade.entryPrice : exitPrice <= activeTrade.entryPrice;
 
-      fetch("http://localhost:3001/api/trade/resolve", {
+      fetch(`${API_BASE}/api/trade/resolve`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

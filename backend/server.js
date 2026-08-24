@@ -18,14 +18,18 @@ initFirebaseAdmin();
 const app        = express();
 const httpServer = createServer(app);
 
-const FRONTEND = "http://localhost:5173";
-const PORT     = process.env.PORT || 3001;
+const FRONTEND_ORIGINS = (process.env.FRONTEND_ORIGIN || "http://localhost:5173")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+const PORT = process.env.PORT || 3001;
 
 const io = new Server(httpServer, {
-  cors: { origin: FRONTEND, methods: ["GET", "POST"] },
+  cors: { origin: FRONTEND_ORIGINS, methods: ["GET", "POST"] },
 });
 
-app.use(cors({ origin: FRONTEND }));
+app.use(cors({ origin: FRONTEND_ORIGINS }));
 app.use(express.json());
 
 // ─── ADMIN ACCOUNTS ───────────────────────────────────────────────────────────
@@ -507,7 +511,7 @@ io.on("connection", (socket) => {
 // ═══════════════════════════════════════════════════════════════════════════════
 httpServer.listen(PORT, () => {
   console.log(`\n🚀 Bitloom Backend  →  http://localhost:${PORT}`);
-  console.log(`📡 CORS origin    →  ${FRONTEND}`);
+  console.log(`📡 CORS origins   →  ${FRONTEND_ORIGINS.join(", ")}`);
   console.log(`💰 Money store    →  ${money.backendMode()}`);
   if (!isFirebaseReady()) {
     console.log("⚠️  Firebase Admin not configured — using local JSON store (backend/data/)");

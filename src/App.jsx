@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import logoMark from "./assets/bitloom-logo.png";
 import { createChart, CandlestickSeries } from "lightweight-charts";
+import { API_BASE } from "./config.js";
 
 // ─── TICKER BAR ────────────────────────────────────────────────────────────────
 function TickerBar({ livePairs = pairs }) {
@@ -592,8 +593,6 @@ function MiniTradeChart({ priceHistory, entryPrice, isWinning }) {
   );
 }
 
-const API_BASE = "http://localhost:3001";
-
 async function apiAuthHeaders(user) {
   const headers = { "Content-Type": "application/json" };
   if (!user) return headers;
@@ -637,7 +636,7 @@ function BinaryTradePanel({ symbol, mid, balance, onTradeDone, onBalanceChange, 
 
   // Fetch initial P&L mode and subscribe to socket updates
   useEffect(() => {
-    fetch("http://localhost:3001/api/pnl-mode")
+    fetch(`${API_BASE}/api/pnl-mode`)
       .then(res => res.json())
       .then(data => setPnlMode(data.mode))
       .catch(() => {});
@@ -1765,7 +1764,7 @@ function AdminLoginModal({ onSuccess, onClose }) {
     if (!username || !password) { setError("Please enter credentials."); return; }
     setLoading(true); setError("");
     try {
-      const res  = await fetch("http://localhost:3001/api/admin/login", {
+      const res  = await fetch(`${API_BASE}/api/admin/login`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password }),
       });
@@ -1856,11 +1855,11 @@ function AdminPanel({ onLogout, credentials }) {
     const q = `username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}`;
 
     // Fetch current state from backend
-    fetch(`http://localhost:3001/api/pnl-mode?${q}`)
+    fetch(`${API_BASE}/api/pnl-mode?${q}`)
       .then(r => r.json()).then(setPnlConfig).catch(() => {});
-    fetch(`http://localhost:3001/api/admin/chats?${q}`)
+    fetch(`${API_BASE}/api/admin/chats?${q}`)
       .then(r => r.json()).then(d => Array.isArray(d) && setSessions(d)).catch(() => {});
-    fetch(`http://localhost:3001/api/admin/stats?${q}`)
+    fetch(`${API_BASE}/api/admin/stats?${q}`)
       .then(r => r.json()).then(setStats).catch(() => {});
 
     // Tell backend this socket is an admin (joins all session rooms)
