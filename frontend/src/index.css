@@ -1,0 +1,44 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-tr-bg text-tr-text text-xs;
+  }
+}
+
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: #2b3139 #161a1e;
+  }
+  .no-select { user-select: none; }
+}
+
+/* TradingView widget container */
+#tv_chart_container { width: 100%; height: 100%; }
+#tv_chart_container iframe { border: none !important; }
+
+/* Range slider */
+input[type='range'] {
+  -webkit-appearance: none;
+  height: 3px;
+  background: #2b3139;
+  border-radius: 2px;
+  outline: none;
+}
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #f0b90b;
+  cursor: pointer;
+}
+input[type='range'].green-thumb::-webkit-slider-thumb { background: #0ecb81; }
+input[type='range'].red-thumb::-webkit-slider-thumb { background: #f6465d; }
+
+/* Number input — hide arrows */
+input[type='number']::-webkit-inner-spin-button,
+input[type='number']::-webkit-outer-spin-button { -webkit-appearance: none; }

@@ -1,0 +1,24 @@
+/* App.css — global overrides */
+/* Tailwind utilities are loaded via index.css */
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #334155 transparent;
+}
+*::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 99px;
+}
+
+input[type="range"] {
+  height: 4px;
+  border-radius: 99px;
+}
+

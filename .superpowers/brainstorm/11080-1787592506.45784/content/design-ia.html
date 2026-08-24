@@ -1,0 +1,48 @@
+<h2>Design §1 — Information architecture</h2>
+<p class="subtitle">Does this site map feel right? Reply yes to continue, or say what to change.</p>
+
+<div class="section">
+  <p class="label">Three shells</p>
+  <div class="split">
+    <div class="mockup">
+      <div class="mockup-header">MarketingShell (light)</div>
+      <div class="mockup-body">
+        <div class="mock-nav">NovaX · Products · Markets · Support · Log in · Trade</div>
+        <div class="placeholder" style="height:80px;margin-top:8px">Landing / About hero</div>
+        <p style="font-size:12px;margin-top:8px">Routes: <code>/</code>, <code>/about</code></p>
+      </div>
+    </div>
+    <div class="mockup">
+      <div class="mockup-header">Auth + Money (light forms)</div>
+      <div class="mockup-body">
+        <div class="placeholder" style="height:100px">Centered form card</div>
+        <p style="font-size:12px;margin-top:8px">Routes: <code>/login</code> <code>/signup</code> <code>/deposit</code> <code>/withdraw</code> <code>/checkout</code> <code>/contact-care</code></p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="mockup" style="margin-top:16px">
+  <div class="mockup-header">AppShell / TerminalShell (dark)</div>
+  <div class="mockup-body">
+    <div class="mock-nav" style="background:#12161c;color:#eaecef;border-color:#2b3139">NovaX · Trade · Markets · Portfolio · Deposit · Account</div>
+    <div style="display:flex;gap:8px;margin-top:8px;min-height:100px">
+      <div class="mock-sidebar" style="background:#12161c;border:1px solid #2b3139;color:#848e9c;width:28%">Watchlist / Book</div>
+      <div class="mock-content" style="background:#0b0e11;border:1px solid #2b3139;color:#eaecef;flex:1">Chart + ticket + blotter<br/><small>/trade/:symbol · /markets · /portfolio</small></div>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:16px">
+  <p class="label">Route map</p>
+  <ul>
+    <li><strong>/</strong> — Landing (light)</li>
+    <li><strong>/trade</strong> → <strong>/trade/:symbol</strong> — Terminal (dark), default BTCUSDT</li>
+    <li><strong>/markets</strong> — Full markets table (dark app chrome)</li>
+    <li><strong>/portfolio</strong> — Equity, holdings, history (dark app chrome)</li>
+    <li><strong>/login</strong> · <strong>/signup</strong> — Auth</li>
+    <li><strong>/deposit</strong> · <strong>/withdraw</strong> · <strong>/checkout</strong> · <strong>/contact-care</strong> — Money flows (keep logic, new UI)</li>
+    <li><strong>/profile</strong> — Account / referral</li>
+  </ul>
+  <p class="subtitle">In-app state pages (markets/futures/assets/about as <code>activePage</code>) become real URL routes. Admin + live chat stay wired; chrome restyled to match.</p>
+</div>

@@ -1,0 +1,47 @@
+/* NovaX design tokens — hybrid light marketing + dark terminal */
+:root {
+  --bg: #0b0e11;
+  --panel: #12161c;
+  --elevated: #1e2329;
+  --border: #2b3139;
+  --text: #eaecef;
+  --muted: #848e9c;
+  --accent: #3b82f6;
+  --accent-hover: #2563eb;
+  --up: #0ecb81;
+  --down: #f6465d;
+  --mkt-bg: #f8fafc;
+  --mkt-bg-2: #eef2f7;
+  --mkt-text: #0a2540;
+  --mkt-muted: #5b6b7c;
+  --mkt-border: #dce1e8;
+  --radius-sm: 2px;
+  --radius: 4px;
+  --radius-lg: 8px;
+  --font-sans: "IBM Plex Sans", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+
+.nx-dark {
+  color: var(--text);
+  background: var(--bg);
+}
+
+.nx-light {
+  color: var(--mkt-text);
+  background: var(--mkt-bg);
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+.nx-hairline {
+  border: 1px solid var(--border);
+}
+
+.nx-panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+}

@@ -1,0 +1,40 @@
+<h2>How should we rebuild?</h2>
+<p class="subtitle">Same product goals — different engineering approaches. Click your preferred path.</p>
+
+<div class="options">
+  <div class="option" data-choice="reskin" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Reskin in place</h3>
+      <p>Keep the giant App.jsx structure. Swap colors, fonts, and layout classes. Fastest, but the codebase stays hard to maintain and quality will plateau.</p>
+      <div class="pros-cons" style="margin-top:8px">
+        <div class="pros"><h4>Pros</h4><ul><li>Fastest visible change</li><li>Less risk to logic</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>Still a 4k-line monolith</li><li>Hard to make every surface consistent</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="rebuild-architecture" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Full UI architecture rebuild (recommended)</h3>
+      <p>New design tokens, layout shells, real routes (/, /trade, /markets, /portfolio, auth, money). Split App.jsx into components. Same Firebase/socket/binary backend.</p>
+      <div class="pros-cons" style="margin-top:8px">
+        <div class="pros"><h4>Pros</h4><ul><li>Pro quality + consistency</li><li>Maintainable for future work</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>Longest build</li><li>More files to review</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="phased" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Phased: shells first, then terminal</h3>
+      <p>Ship design system + landing/auth/money first, then markets/portfolio, then dense terminal last. Same end state as B, delivered in releases.</p>
+      <div class="pros-cons" style="margin-top:8px">
+        <div class="pros"><h4>Pros</h4><ul><li>See progress sooner</li><li>Same final quality as B</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>Mixed old/new UI temporarily</li><li>Slightly more coordination</li></ul></div>
+      </div>
+    </div>
+  </div>
+</div>

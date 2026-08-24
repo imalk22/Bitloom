@@ -1,0 +1,69 @@
+@import "tailwindcss";
+
+html,
+body,
+#root {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+* {
+  font-family: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
+  box-sizing: border-box;
+}
+
+.tabular-nums, .font-mono {
+  font-variant-numeric: tabular-nums;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #334155 #0a0f1a;
+}
+*::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+*::-webkit-scrollbar-track {
+  background: #080d16;
+}
+*::-webkit-scrollbar-thumb {
+  background: #1e293b;
+  border-radius: 999px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: #334155;
+}
+
+#root > div {
+  background-image:
+    radial-gradient(ellipse 80% 50% at 10% -10%, rgba(14, 165, 233, 0.09), transparent 50%),
+    radial-gradient(ellipse 60% 40% at 90% 10%, rgba(56, 189, 248, 0.05), transparent 45%),
+    radial-gradient(circle at 1px 1px, rgba(148, 163, 184, 0.05) 1px, transparent 0);
+  background-size: auto, auto, 36px 36px;
+}
+
+@keyframes ticker {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+
+@keyframes soft-pulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@media (max-width: 1023px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
