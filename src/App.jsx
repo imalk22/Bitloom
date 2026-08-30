@@ -630,9 +630,32 @@ async function apiAuthHeaders(user) {
 
 async function fetchMe(user) {
   const headers = await apiAuthHeaders(user);
-  const res = await fetch(`${API_BASE}/api/me`, { headers });
-  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Failed to load balance");
-  return res.json();
+  const target = `${API_BASE}/api/me`;
+
+  let res;
+  try {
+    res = await fetch(target, { headers });
+  } catch {
+    // fetch itself rejected: nothing answered on the other end.
+    throw new Error(
+      API_BASE
+        ? `Cannot reach the API server at ${API_BASE}`
+        : "Cannot reach the API server — is the backend running?"
+    );
+  }
+
+  // A frontend deployed without its API returns the SPA's index.html here, which
+  // would otherwise surface as a confusing JSON parse error.
+  const contentType = res.headers.get("content-type") || "";
+  if (!contentType.includes("application/json")) {
+    throw new Error(
+      "No API at this address — the frontend is deployed without a backend. Set VITE_API_URL to the backend URL and rebuild."
+    );
+  }
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Failed to load balance (HTTP ${res.status})`);
+  return data;
 }
 
 function BinaryTradePanel({ symbol, mid, balance, onTradeDone, onBalanceChange, currentUser }) {
