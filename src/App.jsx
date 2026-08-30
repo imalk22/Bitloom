@@ -76,14 +76,6 @@ const DURATIONS = [
 const REFERRAL_CODE = "Bitloom-REF-2025";
 
 
-const INITIAL_TRANSACTIONS = [
-  { type: "Deposit",  asset: "USDT", amount: "10,000.00", status: "Completed", date: "2025-05-10 14:23" },
-  { type: "Deposit",  asset: "BTC",  amount: "0.1000",    status: "Completed", date: "2025-05-09 09:15" },
-  { type: "Withdraw", asset: "USDT", amount: "500.00",    status: "Completed", date: "2025-05-08 17:30" },
-  { type: "Deposit",  asset: "ETH",  amount: "2.0000",    status: "Completed", date: "2025-05-07 11:05" },
-  { type: "Withdraw", asset: "BTC",  amount: "0.0100",    status: "Pending",   date: "2025-05-06 08:42" },
-];
-
 // ─── HELPERS ───────────────────────────────────────────────────────────────────
 function formatPrice(v) {
   return Number(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -510,48 +502,6 @@ function TradesFeed({ mid }) {
     </div>
   );
 }
-
-// ─── POSITIONS TABLE ───────────────────────────────────────────────────────────
-function Positions({ mode = "futures" }) {
-  const spotRows = [
-    ["BTCUSDT", "0.042", "104,832.60", "+82.45",  "+0.79%"],
-    ["ETHUSDT", "1.200", "3,864.25",   "-18.20",  "-0.47%"],
-  ];
-  const futuresRows = [
-    ["BTCUSDT", "Buy 10x",  "0.042", "102,840.50", "+82.45", "+1.92%"],
-    ["ETHUSDT", "Sell 5x",  "1.200", "3,902.10",   "-18.20", "-0.38%"],
-    ["XAUUSDT", "Buy 3x",   "0.500", "3,350.20",   "+9.40",  "+0.56%"],
-  ];
-  const headers = mode === "spot" ? ["Pair", "Amount", "Value", "PNL", "ROE"] : ["Pair", "Side", "Size", "Entry", "PNL", "ROE"];
-  const rows   = mode === "spot" ? spotRows : futuresRows;
-  const pnlIdx = mode === "spot" ? 3 : 4;
-  const roeIdx = mode === "spot" ? 4 : 5;
-  return (
-    <div className="rounded-3xl bg-slate-950 border border-slate-800 overflow-hidden">
-      <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
-        <h3 className="text-white font-bold">{mode === "spot" ? "Holdings" : "Positions / Open Orders"}</h3>
-        <span className="text-xs text-emerald-400 flex items-center gap-1"><ShieldCheck className="h-3 w-3" /> Secure</span>
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="text-slate-500 bg-slate-900/40">
-            <tr>{headers.map((h) => <th key={h} className="text-left px-5 py-3 font-semibold">{h}</th>)}</tr>
-          </thead>
-          <tbody>
-            {rows.map((r, ri) => (
-              <tr key={ri} className="border-t border-slate-800/60 hover:bg-slate-900/30 transition">
-                {r.map((c, i) => (
-                  <td key={i} className={`px-5 py-3 ${(i === pnlIdx || i === roeIdx) ? (c.startsWith("+") ? "text-emerald-400" : "text-rose-400") : i === 1 && mode === "futures" ? (c.startsWith("Buy") ? "text-emerald-400 font-semibold" : "text-rose-400 font-semibold") : "text-slate-300"}`}>{c}</td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
 // ─── PAIR SIDEBAR ──────────────────────────────────────────────────────────────
 function PairSidebar({ pairs: pairList, selected, livePrice, onSelect }) {
   const [query, setQuery] = useState("");
@@ -1202,6 +1152,14 @@ function DepositWithdrawHistory({ transactions }) {
                 <td className="px-5 py-3 text-slate-500 text-xs">{tx.date}</td>
               </tr>
             ))}
+            {transactions.length === 0 && (
+              <tr className="border-t border-slate-800/60">
+                <td colSpan={5} className="px-5 py-10 text-center">
+                  <div className="text-sm text-slate-400">No deposits or withdrawals yet</div>
+                  <div className="mt-1 text-xs text-slate-600">Your funding history will appear here.</div>
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
@@ -1379,80 +1337,6 @@ function AllMarketsTable({ livePairs = [] }) {
   );
 }
 
-function OpenOrdersPanel({ mode = "spot" }) {
-  const spotOrders = [
-    { id: "S-0012", pair: "BTCUSDT", side: "buy",  type: "Limit",  price: "103,200.00", amount: "0.010", filled: 0,   time: "09:42:11" },
-    { id: "S-0011", pair: "ETHUSDT", side: "sell", type: "Limit",  price: "3,920.00",   amount: "0.500", filled: 40,  time: "09:31:05" },
-  ];
-  const futOrders = [
-    { id: "F-0024", pair: "BTCUSDT", side: "buy",  lev: "10x", type: "Limit",  price: "103,500.00", amount: "0.020", tp: "107,000.00", sl: "101,000.00", time: "09:55:00" },
-    { id: "F-0023", pair: "ETHUSDT", side: "sell", lev: "5x",  type: "Stop",   price: "3,950.00",   amount: "1.000", tp: "3,700.00",   sl: "4,100.00",   time: "09:44:22" },
-  ];
-  const [orders, setOrders] = useState(mode === "spot" ? spotOrders : futOrders);
-  const cancel = (id) => setOrders((prev) => prev.filter((o) => o.id !== id));
-  return (
-    <div className="rounded-3xl bg-slate-950 border border-slate-800 overflow-hidden">
-      <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
-        <h3 className="text-white font-bold">Open Orders</h3>
-        <button
-          type="button"
-          onClick={() => setOrders([])}
-          disabled={orders.length === 0}
-          className="cursor-pointer text-xs font-semibold text-rose-400 transition hover:text-rose-300 disabled:cursor-not-allowed disabled:text-slate-600"
-        >
-          Cancel All
-        </button>
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="text-slate-500 bg-slate-900/40">
-            <tr>
-              {(mode === "spot"
-                ? ["ID", "Pair", "Side", "Type", "Price", "Amount", "Filled", "Time", ""]
-                : ["ID", "Pair", "Side", "Lev", "Type", "Price", "Amt", "TP", "SL", "Time", ""]
-              ).map((h) => <th key={h} className="text-left px-4 py-3 font-semibold whitespace-nowrap">{h}</th>)}
-            </tr>
-          </thead>
-          <tbody>
-            {orders.map((o) => (
-              <tr key={o.id} className="border-t border-slate-800/60 hover:bg-slate-900/30 transition">
-                <td className="px-4 py-3 text-slate-500 text-xs font-mono">{o.id}</td>
-                <td className="px-4 py-3 text-white font-semibold">{o.pair}</td>
-                <td className={`px-4 py-3 font-bold text-xs ${o.side === "buy" ? "text-emerald-400" : "text-rose-400"}`}>{o.side === "buy" ? "Buy" : "Sell"}</td>
-                {mode === "futures" && <td className="px-4 py-3 text-sky-400 text-xs font-bold">{o.lev}</td>}
-                <td className="px-4 py-3 text-slate-300">{o.type}</td>
-                <td className="px-4 py-3 text-slate-300">{o.price}</td>
-                <td className="px-4 py-3 text-slate-300">{o.amount}</td>
-                {mode === "futures" && <td className="px-4 py-3 text-emerald-400 text-xs">{o.tp}</td>}
-                {mode === "futures" && <td className="px-4 py-3 text-rose-400 text-xs">{o.sl}</td>}
-                {mode === "spot" && (
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      <div className="h-1.5 w-16 bg-slate-800 rounded-full overflow-hidden">
-                        <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${o.filled}%` }} />
-                      </div>
-                      <span className="text-xs text-slate-500">{o.filled}%</span>
-                    </div>
-                  </td>
-                )}
-                <td className="px-4 py-3 text-slate-600 text-xs">{o.time}</td>
-                <td className="px-4 py-3">
-                  <button type="button" onClick={() => cancel(o.id)} className="cursor-pointer text-xs font-semibold text-rose-400 transition hover:text-rose-300">Cancel</button>
-                </td>
-              </tr>
-            ))}
-            {orders.length === 0 && (
-              <tr className="border-t border-slate-800/60">
-                <td colSpan={mode === "spot" ? 9 : 11} className="px-4 py-8 text-center text-xs text-slate-600">No open orders</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
 function FundingRateWidget() {
   const rates = [
     { pair: "BTCUSDT", current: "+0.0100%", next: "02:14:33", avg8h: "+0.0092%", pos: true  },
@@ -1558,28 +1442,62 @@ function PortfolioAllocation({ balance = 0 }) {
   );
 }
 
-function RiskOverview() {
+/** Derived entirely from this account's real balance and settled trades. */
+function tradeStats(tradeHistory = []) {
+  const trades = tradeHistory.filter((t) => Number.isFinite(Number(t?.pnl)));
+  const wins = trades.filter((t) => Number(t.pnl) > 0).length;
+  const losses = trades.filter((t) => Number(t.pnl) < 0).length;
+  const realised = trades.reduce((s, t) => s + Number(t.pnl), 0);
+  const best = trades.length ? Math.max(...trades.map((t) => Number(t.pnl))) : 0;
+  const worst = trades.length ? Math.min(...trades.map((t) => Number(t.pnl))) : 0;
+  const winRate = trades.length ? (wins / trades.length) * 100 : 0;
+  const today = new Date().toDateString();
+  const todayPnl = trades
+    .filter((t) => t.completedAt && new Date(t.completedAt).toDateString() === today)
+    .reduce((s, t) => s + Number(t.pnl), 0);
+  return { count: trades.length, wins, losses, realised, best, worst, winRate, todayPnl };
+}
+
+function AccountActivity({ balance = 0, tradeHistory = [], isLoggedIn = false }) {
+  const s = tradeStats(tradeHistory);
   return (
     <div className="rounded-3xl bg-slate-950 border border-slate-800 p-5">
-      <h3 className="text-white font-bold mb-4 flex items-center gap-2"><ShieldCheck className="h-4 w-4 text-emerald-400" /> Risk Overview</h3>
-      <div className="space-y-3">
-        {[
-          { label: "Account Health", value: "Excellent", color: "text-emerald-400", bar: 88 },
-          { label: "Margin Ratio",   value: "18.4%",     color: "text-emerald-400", bar: 18 },
-          { label: "Unrealised PNL", value: "+$73.65",   color: "text-emerald-400", bar: 60 },
-          { label: "Daily Drawdown", value: "-1.2%",     color: "text-rose-400",    bar: 12 },
-        ].map((item) => (
-          <div key={item.label}>
-            <div className="flex justify-between text-xs mb-1">
-              <span className="text-slate-400">{item.label}</span>
-              <span className={`font-bold ${item.color}`}>{item.value}</span>
-            </div>
-            <div className="h-1.5 rounded-full bg-slate-800 overflow-hidden">
-              <div className={`h-full rounded-full ${item.color === "text-emerald-400" ? "bg-emerald-500" : "bg-rose-500"}`} style={{ width: `${item.bar}%` }} />
-            </div>
+      <h3 className="text-white font-bold mb-4 flex items-center gap-2">
+        <ShieldCheck className="h-4 w-4 text-emerald-400" /> Account Activity
+      </h3>
+
+      {!isLoggedIn ? (
+        <p className="text-xs leading-relaxed text-slate-500">Sign in to see your trading activity.</p>
+      ) : s.count === 0 ? (
+        <div className="space-y-3">
+          <div className="flex justify-between text-xs">
+            <span className="text-slate-400">Balance</span>
+            <span className="font-bold tabular-nums text-white">{formatPrice(balance)} USDT</span>
           </div>
-        ))}
-      </div>
+          <p className="text-xs leading-relaxed text-slate-500">
+            No trades yet. Your win rate and P&amp;L will appear here once you place your first trade.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {[
+            { label: "Realised P&L", value: `${s.realised >= 0 ? "+" : ""}${formatPrice(s.realised)}`, good: s.realised >= 0, bar: Math.min(100, Math.abs(s.realised) / Math.max(balance, 1) * 100) },
+            { label: "Win rate", value: `${s.winRate.toFixed(0)}% (${s.wins}W / ${s.losses}L)`, good: s.winRate >= 50, bar: s.winRate },
+            { label: "Best trade", value: `+${formatPrice(s.best)}`, good: true, bar: s.best > 0 ? 100 : 0 },
+            { label: "Worst trade", value: formatPrice(s.worst), good: s.worst >= 0, bar: s.worst < 0 ? 100 : 0 },
+          ].map((item) => (
+            <div key={item.label}>
+              <div className="flex justify-between text-xs mb-1">
+                <span className="text-slate-400">{item.label}</span>
+                <span className={`font-bold tabular-nums ${item.good ? "text-emerald-400" : "text-rose-400"}`}>{item.value}</span>
+              </div>
+              <div className="h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                <div className={`h-full rounded-full ${item.good ? "bg-emerald-500" : "bg-rose-500"}`} style={{ width: `${Math.max(0, Math.min(100, item.bar))}%` }} />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -4117,8 +4035,9 @@ function MarketsPage({ livePairs = pairs, focusPair = null }) {
 
 
 // ── FUTURES ───────────────────────────────────────────────────────────────────
-function FuturesPage({ balance, onTradeDone, onBalanceChange, currentUser, tradeHistory, livePairs = pairs, setActivePage }) {
+function FuturesPage({ balance, onTradeDone, onBalanceChange, currentUser, tradeHistory, livePairs = pairs, setActivePage, isLoggedIn }) {
   const navigate = useNavigate();
+  const realisedPnl = tradeStats(tradeHistory).realised;
   const { selected, setSelected, livePrice, displayPair } = useLivePrice(livePairs[0] || pairs[0], livePairs);
   return (
     <div className="space-y-4">
@@ -4131,40 +4050,28 @@ function FuturesPage({ balance, onTradeDone, onBalanceChange, currentUser, trade
             <span className="text-[10px] text-sky-400 bg-sky-400/10 px-2 py-0.5 rounded-full font-semibold">PERP</span>
           </div>
           <PairSidebar pairs={livePairs} selected={selected} livePrice={livePrice} onSelect={setSelected} />
+          {/* Real account figures only — stake is deducted on open, so the
+              balance is both the equity and what is available to trade. */}
           <div className="rounded-3xl bg-slate-950 border border-slate-800 p-4">
             <h3 className="text-white font-bold text-sm mb-3">Account Summary</h3>
-            <div className="space-y-2 text-sm">
-              <div className="flex justify-between text-slate-400"><span>Equity</span><span className="text-white font-bold">{formatPrice(balance)} USDT</span></div>
-              <div className="flex justify-between text-slate-400"><span>Margin Used</span><span className="text-sky-400 font-bold">$1,240.00</span></div>
-              <div className="flex justify-between text-slate-400"><span>Available</span><span className="text-emerald-400 font-bold">{formatPrice(balance - 1240)}</span></div>
-              <div className="h-px bg-slate-800 my-1" />
-              <div className="flex justify-between text-slate-400"><span>Margin Ratio</span><span className="text-emerald-400 font-bold">18.4%</span></div>
-              <div className="flex justify-between text-slate-400"><span>Liq. Risk</span><span className="text-emerald-400 font-bold">Low</span></div>
-            </div>
-          </div>
-
-          {/* Margin Health Gauge */}
-          <div className="rounded-3xl bg-slate-950 border border-slate-800 p-4">
-            <h3 className="text-white font-bold text-sm mb-3 flex items-center gap-2">
-              <ShieldCheck className="h-3.5 w-3.5 text-sky-400" /> Margin Health
-            </h3>
-            <div className="space-y-2.5">
-              {[
-                { label: "Account Health", pct: 88, color: "bg-emerald-500", text: "text-emerald-400", value: "Excellent" },
-                { label: "Margin Used",    pct: 18, color: "bg-sky-500",   text: "text-sky-400",  value: "18.4%"     },
-                { label: "Free Margin",    pct: 82, color: "bg-blue-500",    text: "text-blue-400",   value: "81.6%"     },
-              ].map((r) => (
-                <div key={r.label}>
-                  <div className="flex justify-between text-xs mb-1">
-                    <span className="text-slate-500">{r.label}</span>
-                    <span className={`${r.text} font-bold`}>{r.value}</span>
-                  </div>
-                  <div className="h-1.5 rounded-full bg-slate-800 overflow-hidden">
-                    <div className={`h-full ${r.color} rounded-full`} style={{ width: `${r.pct}%` }} />
-                  </div>
+            {isLoggedIn ? (
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between text-slate-400"><span>Equity</span><span className="text-white font-bold tabular-nums">{formatPrice(balance)} USDT</span></div>
+                <div className="flex justify-between text-slate-400"><span>Available</span><span className="text-emerald-400 font-bold tabular-nums">{formatPrice(balance)} USDT</span></div>
+                <div className="h-px bg-slate-800 my-1" />
+                <div className="flex justify-between text-slate-400"><span>Trades placed</span><span className="text-white font-bold tabular-nums">{tradeHistory.length}</span></div>
+                <div className="flex justify-between text-slate-400">
+                  <span>Realised P&amp;L</span>
+                  <span className={`font-bold tabular-nums ${realisedPnl >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                    {realisedPnl >= 0 ? "+" : ""}{formatPrice(realisedPnl)} USDT
+                  </span>
                 </div>
-              ))}
-            </div>
+              </div>
+            ) : (
+              <p className="text-xs leading-relaxed text-slate-500">
+                Sign in to see your equity, available balance and trade history.
+              </p>
+            )}
           </div>
 
           {/* Quick Actions */}
@@ -4188,8 +4095,8 @@ function FuturesPage({ balance, onTradeDone, onBalanceChange, currentUser, trade
             </div>
           </div>
 
-          {/* Sits with the other account panels and keeps this column level with the chart */}
-          <RiskOverview />
+          {/* Real figures from this account only */}
+          <AccountActivity balance={balance} tradeHistory={tradeHistory} isLoggedIn={isLoggedIn} />
         </aside>
         <section className="space-y-4">
           <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}>
@@ -4211,7 +4118,6 @@ function FuturesPage({ balance, onTradeDone, onBalanceChange, currentUser, trade
             </div>
           </motion.div>
           <ChartPanel symbol={selected.symbol} />
-          <Positions mode="futures" />
           <PairStatsPanel symbol={selected.symbol} livePrice={livePrice} pair={displayPair} />
           <TechnicalSignalsPanel livePrice={livePrice} pair={displayPair} />
         </section>
@@ -4233,7 +4139,6 @@ function FuturesPage({ balance, onTradeDone, onBalanceChange, currentUser, trade
         </aside>
       </div>
       <ProfitHistoryTable trades={tradeHistory} />
-      <OpenOrdersPanel mode="futures" />
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <FundingRateWidget />
         <LiquidationTracker />
@@ -4245,7 +4150,7 @@ function FuturesPage({ balance, onTradeDone, onBalanceChange, currentUser, trade
 }
 
 // ── ASSETS ────────────────────────────────────────────────────────────────────
-function AssetsPage({ balance, tradeHistory, transactions, livePairs = pairs, setActivePage }) {
+function AssetsPage({ balance, tradeHistory, transactions, livePairs = pairs, setActivePage, isLoggedIn }) {
   const navigate = useNavigate();
   const holdings = [
     { asset: "USDT", name: "Tether",    balance: formatPrice(balance), value: `$${formatPrice(balance)}`, change: "0.00%"  },
@@ -4259,6 +4164,7 @@ function AssetsPage({ balance, tradeHistory, transactions, livePairs = pairs, se
     { asset: "AVAX", name: "Avalanche", balance: "0.0000",             value: "$0.00",                    change: "+2.67%" },
     { asset: "DOT",  name: "Polkadot",  balance: "0.0000",             value: "$0.00",                    change: "-0.41%" },
   ];
+  const stats = tradeStats(tradeHistory);
   const totalVal = balance;
   return (
     <div className="space-y-4">
@@ -4270,7 +4176,14 @@ function AssetsPage({ balance, tradeHistory, transactions, livePairs = pairs, se
           <div className="text-sm font-bold opacity-70 relative z-10">Total Portfolio Value</div>
           <div className="relative z-10 text-3xl font-black sm:text-4xl">${formatPrice(totalVal)}</div>
           <div className="text-xs mt-2 font-semibold opacity-60 relative z-10 flex items-center gap-1.5">
-            <TrendingUp className="h-3 w-3" /> +$584.20 (2.03%) today
+            {stats.count === 0 ? (
+              <>No trades yet</>
+            ) : (
+              <>
+                {stats.todayPnl >= 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+                {stats.todayPnl >= 0 ? "+" : ""}${formatPrice(stats.todayPnl)} today
+              </>
+            )}
           </div>
         </div>
         <div className="rounded-3xl bg-slate-950 border border-slate-800 p-6">
@@ -4323,7 +4236,7 @@ function AssetsPage({ balance, tradeHistory, transactions, livePairs = pairs, se
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <PortfolioAllocation balance={balance} />
-        <RiskOverview />
+        <AccountActivity balance={balance} tradeHistory={tradeHistory} isLoggedIn={isLoggedIn} />
       </div>
       <ProfitHistoryTable trades={tradeHistory} />
       <DepositWithdrawHistory transactions={transactions} />
@@ -4484,7 +4397,7 @@ function App() {
   const [balanceError, setBalanceError] = useState("");
   const [focusPair, setFocusPair] = useState(null);   // set by the header market search
   const [tradeHistory, setTradeHistory] = useState([]);
-  const [transactions, setTransactions] = useState(INITIAL_TRANSACTIONS);
+  const [transactions, setTransactions] = useState([]);
   const [adminState, setAdminState] = useState({ open: false, loggedIn: false, credentials: null });
 
   // Real-time prices from Binance WebSocket
@@ -4578,10 +4491,11 @@ function App() {
             currentUser={currentUser}
             tradeHistory={tradeHistory}
             setActivePage={setActivePage}
+            isLoggedIn={isLoggedIn}
           />
         );
       case "assets":
-        return <AssetsPage livePairs={livePairs} balance={balance} tradeHistory={tradeHistory} transactions={transactions} setActivePage={setActivePage} />;
+        return <AssetsPage livePairs={livePairs} balance={balance} tradeHistory={tradeHistory} transactions={transactions} setActivePage={setActivePage} isLoggedIn={isLoggedIn} />;
       case "about":
         return <AboutPage setActivePage={setActivePage} />;
       case "login":
