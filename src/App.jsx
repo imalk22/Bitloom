@@ -4361,7 +4361,6 @@ function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
   const [balance, setBalance] = useState(0);
-  const [balanceError, setBalanceError] = useState("");
   const [focusPair, setFocusPair] = useState(null);   // set by the header market search
   const [tradeHistory, setTradeHistory] = useState([]);
   const [transactions, setTransactions] = useState([]);
@@ -4386,12 +4385,11 @@ function App() {
     try {
       const me = await fetchMe(user);
       setBalance(Number(me.balance) || 0);
-      setBalanceError("");
       return me;
     } catch (err) {
-      // Never fail silently to $0 — that is what hid this for so long.
-      setBalanceError(err.message || "Could not load balance");
-      console.error("[balance] refresh failed:", err);
+      // No banner by request; the reason still reaches the console so a
+      // stuck balance can be diagnosed rather than guessed at.
+      console.error("[balance] refresh failed:", err.message || err);
       return null;
     }
   }, []);
@@ -4402,7 +4400,6 @@ function App() {
       setCurrentUser(user);
       if (!user) {
         setBalance(0);
-        setBalanceError("");
         setTradeHistory([]);
         return;
       }
@@ -4499,20 +4496,6 @@ function App() {
         }}
       />
       <TickerBar livePairs={livePairs} />
-      {isLoggedIn && balanceError && (
-        <div className="mx-auto max-w-[2400px] px-3 pt-3 sm:px-4 md:px-6 lg:px-8">
-          <div className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-xs text-amber-300">
-            <span>Balance unavailable — {balanceError}</span>
-            <button
-              type="button"
-              onClick={() => refreshBalance()}
-              className="cursor-pointer rounded-lg border border-amber-500/40 px-2.5 py-1 font-semibold text-amber-200 hover:bg-amber-500/15"
-            >
-              Retry
-            </button>
-          </div>
-        </div>
-      )}
       <main className="mx-auto max-w-[2400px] px-3 pb-4 pt-3 sm:px-4 sm:pt-4 md:p-6 lg:p-8">
         {renderContent()}
       </main>
