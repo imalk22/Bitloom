@@ -1,11 +1,22 @@
 @import "tailwindcss";
 
 /*
-  UI feels oversized at default browser 100% zoom; ~90% looks right.
-  `zoom` matches browser zoom (px, rem, icons, borders) — leave browser at 100%.
+  Density is set with the root font size, NOT `zoom`.
+
+  `html { zoom: 0.9 }` caused two bugs that looked unrelated:
+    1. Media queries ignore `zoom`, so the layout always had ~11% more space
+       than the breakpoints believed — the desktop grid refused to engage until
+       the browser was manually zoomed out.
+    2. Combined with `max-width: 100%` below, the page was capped at the
+       viewport width and *then* scaled to 90%, leaving a dead strip down the
+       right-hand side on every screen.
+
+  Tailwind sizes spacing and type in rem, so a smaller root font size gives the
+  same compact feel while viewport width, media queries and layout stay in
+  agreement.
 */
 html {
-  zoom: 0.9;
+  font-size: 15px;
 }
 
 html,

@@ -2875,41 +2875,6 @@ function ProfilePage({ currentUser, balance, tradeHistory, onLogout, setActivePa
         ))}
       </div>
 
-      {/* Security Checklist */}
-      <div className="rounded-3xl bg-slate-950 border border-slate-800 p-5">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-white font-bold flex items-center gap-2">
-            <Lock className="h-4 w-4 text-sky-400" /> Security Score
-          </h3>
-          <div className="flex items-center gap-2">
-            <div className="text-sky-400 font-black text-lg">40<span className="text-slate-600 text-sm">/100</span></div>
-          </div>
-        </div>
-        <div className="h-2 rounded-full bg-slate-800 overflow-hidden mb-4">
-          <div className="h-full bg-gradient-to-r from-sky-500 to-cyan-400 rounded-full" style={{ width: "40%" }} />
-        </div>
-        <div className="space-y-2.5">
-          {[
-            { label: "Email Verified",       done: true  },
-            { label: "2FA Enabled",          done: false },
-            { label: "Anti-phishing Code",   done: false },
-            { label: "Withdrawal Address",   done: true  },
-          ].map((item) => (
-            <div key={item.label} className="flex items-center justify-between text-sm">
-              <div className="flex items-center gap-2.5">
-                <div className={`h-4 w-4 rounded-full flex items-center justify-center ${item.done ? "bg-emerald-500" : "bg-slate-800 border border-slate-700"}`}>
-                  {item.done && <div className="h-1.5 w-1.5 rounded-full bg-black" />}
-                </div>
-                <span className={item.done ? "text-slate-300" : "text-slate-500"}>{item.label}</span>
-              </div>
-              <span className={`text-xs font-semibold ${item.done ? "text-emerald-400" : "text-slate-600"}`}>
-                {item.done ? "Done" : "Set up →"}
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
-
       {/* Referral Card */}
       <div className="rounded-3xl border border-sky-500/20 bg-gradient-to-r from-sky-500/10 via-cyan-500/8 to-sky-500/10 p-4 sm:p-6">
         <div className="flex flex-col items-start justify-between gap-4 sm:flex-row">
@@ -4274,11 +4239,10 @@ function AssetsPage({ balance, tradeHistory, transactions, livePairs = pairs, se
         <h3 className="text-white font-bold mb-4 flex items-center gap-2">
           <Zap className="h-4 w-4 text-sky-400" /> Quick Actions
         </h3>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <div className="grid grid-cols-2 gap-3">
           {[
             { label: "Deposit",   sub: "Add funds",       icon: <ArrowUpRight className="h-5 w-5" />,   color: "bg-sky-500/10 border-sky-500/30 text-sky-400 hover:bg-sky-500/20",   action: () => navigate('/deposit')     },
             { label: "Withdraw",  sub: "Send to wallet",  icon: <ArrowDownRight className="h-5 w-5" />, color: "bg-rose-500/10 border-rose-500/30 text-rose-400 hover:bg-rose-500/20", action: () => navigate('/withdraw')    },
-            { label: "Trade",     sub: "Futures market",  icon: <BarChart3 className="h-5 w-5" />,      color: "bg-blue-500/10 border-blue-500/30 text-blue-400 hover:bg-blue-500/20", action: () => setActivePage?.("futures") },
           ].map((a) => (
             <button key={a.label} onClick={a.action}
               className={`flex flex-col items-center gap-2 py-5 rounded-2xl border transition cursor-pointer ${a.color}`}>
@@ -4292,38 +4256,8 @@ function AssetsPage({ balance, tradeHistory, transactions, livePairs = pairs, se
         </div>
       </div>
 
-      {/* ── Account Security + Platform Stats ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Account Security */}
-        <div className="rounded-3xl bg-slate-950 border border-slate-800 p-5">
-          <h3 className="text-white font-bold mb-4 flex items-center gap-2">
-            <ShieldCheck className="h-4 w-4 text-sky-400" /> Account Security
-          </h3>
-          <div className="space-y-3">
-            {[
-              { label: "Email Verification",  done: true,  detail: "Verified"            },
-              { label: "2FA Authentication",  done: false, detail: "Not enabled"          },
-              { label: "Withdrawal Whitelist",done: true,  detail: "Active"               },
-              { label: "Anti-phishing Code",  done: false, detail: "Not configured"       },
-            ].map((item) => (
-              <div key={item.label} className="flex items-center justify-between py-2 border-b border-slate-800/60 last:border-0">
-                <div className="flex items-center gap-3">
-                  <div className={`h-4 w-4 rounded-full flex items-center justify-center flex-shrink-0 ${item.done ? "bg-emerald-500" : "bg-slate-800 border border-slate-700"}`}>
-                    {item.done && <CheckCircle2 className="h-2.5 w-2.5 text-black" />}
-                  </div>
-                  <span className="text-sm text-slate-300">{item.label}</span>
-                </div>
-                <span className={`text-xs font-semibold ${item.done ? "text-emerald-400" : "text-sky-400"}`}>{item.detail}</span>
-              </div>
-            ))}
-          </div>
-          <button type="button" onClick={() => setActivePage?.("profile")}
-            className="mt-4 w-full py-2.5 rounded-2xl border border-sky-500/30 text-sky-400 text-xs font-bold hover:bg-sky-500/10 transition cursor-pointer">
-            Improve Security Score
-          </button>
-        </div>
-
-        {/* Platform Stats */}
+      {/* ── Platform Stats ── */}
+      <div>
         <div className="rounded-3xl bg-slate-950 border border-slate-800 p-5">
           <h3 className="text-white font-bold mb-4 flex items-center gap-2">
             <Globe className="h-4 w-4 text-sky-400" /> Bitloom Platform
