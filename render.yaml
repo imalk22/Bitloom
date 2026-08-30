@@ -8,6 +8,18 @@ services:
     startCommand: npm start
     healthCheckPath: /api/health
     envVars:
+      - key: ADMIN_MAIN_USER
+        sync: false
+      - key: ADMIN_MAIN_PASS
+        sync: false
+      - key: ADMIN_2_USER
+        sync: false
+      - key: ADMIN_2_PASS
+        sync: false
+      - key: ADMIN_3_USER
+        sync: false
+      - key: ADMIN_3_PASS
+        sync: false
       - key: FRONTEND_ORIGIN
         sync: false
       - key: FIREBASE_PROJECT_ID

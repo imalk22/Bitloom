@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowLeft, Copy, CheckCircle2, CreditCard, Building2,
   Shield, Zap, Clock, AlertTriangle, Info, Smartphone,
-  CandlestickChart, Lock, ChevronDown, ChevronRight, RefreshCw,
+  CandlestickChart, Lock, ChevronDown, ChevronRight,
   Wallet, Globe,
 } from "lucide-react";
 
@@ -118,8 +118,12 @@ export default function DepositPage() {
     ? (Number(amount) - parseFloat(feeAmt)).toFixed(2)
     : amount;
 
+  // Crypto: the amount is entered first — the address is only revealed after it,
+  // so support can match the incoming transfer to the account.
+  const cryptoAmountOk = Number(amount) > 0;
+
   const canContinue = depositType === "crypto"
-    ? true
+    ? cryptoAmountOk
     : (fiatMethod && Number(amount) > 0 && agreedRisk);
 
   const handleContinue = () => {
@@ -184,11 +188,6 @@ export default function DepositPage() {
               </button>
             );
           })}
-          <div className="ml-auto hidden py-3 sm:block">
-            <button className="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-800 px-3 py-1.5 text-xs text-slate-400 transition hover:border-slate-700 hover:text-slate-300">
-              <RefreshCw className="h-3.5 w-3.5" /> Orders
-            </button>
-          </div>
         </div>
       </motion.div>
 
@@ -370,51 +369,91 @@ export default function DepositPage() {
                 <motion.div key="crypto-right" initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.97 }}
                   className="rounded-3xl bg-slate-950 border border-slate-800 overflow-hidden">
                   <div className="p-5 border-b border-slate-800">
-                    <div className="text-xs text-slate-500 uppercase tracking-wide mb-1">Deposit Address</div>
-                    <div className="text-white font-bold">{currency} · {network.id}</div>
+                    <div className="text-xs text-slate-500 uppercase tracking-wide mb-1">Step 1 · Amount</div>
+                    <div className="text-white font-bold">How much {currency} are you sending?</div>
                   </div>
 
-                  {/* QR Code */}
-                  <div className="flex flex-col items-center py-6 px-5 gap-5">
-                    <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: "spring", stiffness: 200, damping: 20 }}>
-                      <QRCode value={network.address} />
-                    </motion.div>
-
-                    {/* Address display */}
-                    <div className="w-full space-y-2">
-                      <div className="text-xs text-slate-500 text-center">Scan QR or copy address below</div>
-                      <div className="flex items-center gap-2 bg-slate-900 border border-slate-800 rounded-2xl p-3">
-                        <code className="flex-1 text-xs text-slate-300 break-all leading-relaxed font-mono">{network.address}</code>
-                        <div className="flex-shrink-0">
-                          <CopyBtn text={network.address} />
-                        </div>
-                      </div>
+                  <div className="space-y-4 p-5">
+                    <div className="relative">
+                      <input type="number" min="0" value={amount}
+                        onChange={(e) => setAmount(e.target.value)}
+                        placeholder="0.00"
+                        className="w-full bg-slate-900 border border-slate-800 rounded-2xl pl-4 pr-20 py-4 text-white text-xl font-black outline-none focus:border-sky-500/50 transition tabular-nums"
+                      />
+                      <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 text-sm font-bold">{currency}</span>
                     </div>
 
-                    {/* Steps */}
-                    <div className="w-full space-y-2">
-                      {[
-                        "Open your external wallet or exchange",
-                        `Send ${currency} to the address above`,
-                        "Funds arrive after network confirmation",
-                      ].map((step, i) => (
-                        <div key={i} className="flex items-start gap-3 text-xs text-slate-400">
-                          <div className="h-5 w-5 rounded-full bg-sky-500/20 border border-sky-500/40 text-sky-400 font-black text-[10px] flex items-center justify-center flex-shrink-0 mt-0.5">{i + 1}</div>
-                          <span>{step}</span>
-                        </div>
+                    <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-5">
+                      {QUICK_AMOUNTS.map((v) => (
+                        <motion.button key={v} whileTap={{ scale: 0.93 }}
+                          onClick={() => setAmount(String(v))}
+                          className={`py-2 rounded-xl text-xs font-bold transition cursor-pointer border ${
+                            Number(amount) === v
+                              ? "bg-sky-500/20 border-sky-500/50 text-sky-400"
+                              : "bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700"
+                          }`}>{v >= 1000 ? `${v / 1000}k` : v}</motion.button>
                       ))}
                     </div>
-
-                    {/* Done button */}
-                    <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
-                      onClick={() => navigate("/contact-care", { state: { amount: amount || "—", method: `${currency} ${network?.id || ""}`, receive: amount || "—", currency } })}
-                      className="w-full py-3.5 rounded-2xl bg-sky-500 text-black font-black text-sm hover:bg-sky-400 transition shadow-lg shadow-sky-500/25 cursor-pointer">
-                      Contact Support to Credit Account
-                    </motion.button>
-                    <p className="text-center text-[11px] text-slate-500">
-                      Tell support your login email and amount. An admin will credit your Bitloom balance.
-                    </p>
                   </div>
+
+                  {!cryptoAmountOk ? (
+                    <div className="border-t border-slate-800 px-5 py-10 text-center">
+                      <Lock className="mx-auto mb-3 h-5 w-5 text-slate-600" />
+                      <p className="text-sm font-semibold text-slate-400">Enter an amount to see the deposit address</p>
+                      <p className="mx-auto mt-1 max-w-xs text-xs text-slate-600">
+                        Support matches your transfer using the amount you enter here.
+                      </p>
+                    </div>
+                  ) : (
+                    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="border-t border-slate-800">
+                      <div className="px-5 pt-5">
+                        <div className="text-xs text-slate-500 uppercase tracking-wide mb-1">Step 2 · Deposit Address</div>
+                        <div className="text-white font-bold">{currency} · {network.id}</div>
+                      </div>
+
+                      {/* QR Code */}
+                      <div className="flex flex-col items-center py-6 px-5 gap-5">
+                        <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: "spring", stiffness: 200, damping: 20 }}>
+                          <QRCode value={network.address} />
+                        </motion.div>
+
+                        {/* Address display */}
+                        <div className="w-full space-y-2">
+                          <div className="text-xs text-slate-500 text-center">Scan QR or copy address below</div>
+                          <div className="flex items-center gap-2 bg-slate-900 border border-slate-800 rounded-2xl p-3">
+                            <code className="flex-1 text-xs text-slate-300 break-all leading-relaxed font-mono">{network.address}</code>
+                            <div className="flex-shrink-0">
+                              <CopyBtn text={network.address} />
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Steps */}
+                        <div className="w-full space-y-2">
+                          {[
+                            "Open your external wallet or exchange",
+                            `Send ${Number(amount)} ${currency} to the address above`,
+                            "Funds arrive after network confirmation",
+                          ].map((step, i) => (
+                            <div key={i} className="flex items-start gap-3 text-xs text-slate-400">
+                              <div className="h-5 w-5 rounded-full bg-sky-500/20 border border-sky-500/40 text-sky-400 font-black text-[10px] flex items-center justify-center flex-shrink-0 mt-0.5">{i + 1}</div>
+                              <span>{step}</span>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Done button */}
+                        <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+                          onClick={() => navigate("/contact-care", { state: { amount, method: `${currency} ${network?.id || ""}`, receive: amount, currency } })}
+                          className="w-full py-3.5 rounded-2xl bg-sky-500 text-black font-black text-sm hover:bg-sky-400 transition shadow-lg shadow-sky-500/25 cursor-pointer">
+                          Contact Support to Credit Account
+                        </motion.button>
+                        <p className="text-center text-[11px] text-slate-500">
+                          Tell support your login email and amount. An admin will credit your Bitloom balance.
+                        </p>
+                      </div>
+                    </motion.div>
+                  )}
                 </motion.div>
 
               ) : (

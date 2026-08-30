@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowLeft, CandlestickChart, ChevronDown, AlertTriangle,
   CheckCircle2, Shield, Lock, Clock, Copy, Wallet,
-  Building2, RefreshCw, Globe, Info, Zap, X,
+  Building2, Globe, Info, Zap, X,
   ArrowDownLeft, TrendingDown,
 } from "lucide-react";
 
@@ -235,11 +235,6 @@ export default function WithdrawPage() {
                 </button>
               );
             })}
-            <div className="ml-auto hidden py-3 sm:block">
-              <button className="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-800 px-3 py-1.5 text-xs text-slate-400 transition hover:border-slate-700 hover:text-slate-300">
-                <RefreshCw className="h-3.5 w-3.5" /> History
-              </button>
-            </div>
           </div>
         </div>
 

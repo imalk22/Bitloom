@@ -23,6 +23,7 @@ module.exports = {
   setBalanceByEmail: (...a) => store().setBalanceByEmail(...a),
   freezeByEmail: (...a) => store().freezeByEmail(...a),
   listLedgerByEmail: (...a) => store().listLedgerByEmail(...a),
+  listRecentLedger: (...a) => store().listRecentLedger(...a),
   openTrade: (...a) => store().openTrade(...a),
   settleTrade: (...a) => store().settleTrade(...a),
 };

@@ -1,18 +1,54 @@
 import { useLocation, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
-  CheckCircle2, Mail, MessageCircle, Phone, ArrowLeft,
-  CandlestickChart, Clock, Shield, Headphones, Send, Copy,
+  CheckCircle2, Mail, MessageCircle, ArrowLeft,
+  CandlestickChart, Clock, Shield, Headphones, Send,
 } from "lucide-react";
 import { useState } from "react";
 
-function CopyBtn({ text }) {
+const CARD_COLORS = {
+  amber: { bg: "bg-sky-500/10 border-sky-500/25",        icon: "text-sky-400",     btn: "bg-sky-500 text-black hover:bg-sky-400 shadow-sky-500/25" },
+  blue:  { bg: "bg-blue-500/10 border-blue-500/25",      icon: "text-blue-400",    btn: "bg-blue-500 text-white hover:bg-blue-400 shadow-blue-500/25" },
+  green: { bg: "bg-emerald-500/10 border-emerald-500/25", icon: "text-emerald-400", btn: "bg-emerald-500 text-black hover:bg-emerald-400 shadow-emerald-500/25" },
+};
+
+/** One contact channel. Its own component so the hook is not called inside a map callback. */
+function ChannelCard({ channel, index, onAction }) {
   const [copied, setCopied] = useState(false);
+  const Icon = channel.icon;
+  const col = CARD_COLORS[channel.accent];
+
+  const handle = () => {
+    if (channel.copyText) {
+      navigator.clipboard?.writeText(channel.copyText);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+      return;
+    }
+    onAction?.(channel);
+  };
+
   return (
-    <button onClick={() => { navigator.clipboard.writeText(text).catch(() => {}); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
-      className="text-sky-400 hover:text-sky-300 transition cursor-pointer">
-      {copied ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-    </button>
+    <motion.div initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.25 + index * 0.07 }}
+      className={`flex items-center gap-4 p-4 rounded-2xl border ${col.bg}`}>
+      <div className={`h-11 w-11 rounded-2xl bg-slate-900 flex items-center justify-center flex-shrink-0 ${col.icon}`}>
+        <Icon className="h-5 w-5" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="text-white font-bold text-sm">{channel.title}</div>
+        <div className="text-slate-400 text-xs truncate">{channel.desc}</div>
+        <div className="flex items-center gap-1 text-slate-600 text-[10px] mt-0.5">
+          <Clock className="h-2.5 w-2.5" /> {channel.detail}
+        </div>
+      </div>
+      <motion.button
+        type="button"
+        whileTap={{ scale: 0.93 }}
+        onClick={handle}
+        className={`px-3.5 py-2 rounded-xl text-xs font-black shadow-lg transition cursor-pointer flex-shrink-0 ${col.btn}`}>
+        {copied ? "Copied!" : channel.action}
+      </motion.button>
+    </motion.div>
   );
 }
 
@@ -24,6 +60,12 @@ export default function ContactCarePage() {
   const receive    = state?.receive     ?? "—";
   const currency   = state?.currency   ?? "USDT";
   const isWithdraw = state?.isWithdraw  ?? false;
+
+  // The chat widget lives on the main app route, so flag it and navigate there.
+  const startChat = () => {
+    try { sessionStorage.setItem("bitloom_open_chat", "1"); } catch { /* storage blocked */ }
+    navigate("/");
+  };
 
   const channels = [
     {
@@ -42,15 +84,6 @@ export default function ContactCarePage() {
       accent: "blue",
       action: "Copy Email",
       copyText: "support@bitloom.online",
-    },
-    {
-      icon: Phone,
-      title: "Phone Support",
-      desc: "+1 (800) 555-0199",
-      detail: "Mon – Fri · 9am – 6pm UTC",
-      accent: "green",
-      action: "Copy Number",
-      copyText: "+18005550199",
     },
   ];
 
@@ -110,44 +143,9 @@ export default function ContactCarePage() {
 
         {/* Contact channels */}
         <div className="space-y-3 mb-6">
-          {channels.map((c, i) => {
-            const Icon = c.icon;
-            const [copied, setCopied] = useState(false);
-            const colors = {
-              amber: { bg: "bg-sky-500/10 border-sky-500/25",  icon: "text-sky-400",   btn: "bg-sky-500 text-black hover:bg-sky-400 shadow-sky-500/25" },
-              blue:  { bg: "bg-blue-500/10 border-blue-500/25",    icon: "text-blue-400",    btn: "bg-blue-500 text-white hover:bg-blue-400 shadow-blue-500/25" },
-              green: { bg: "bg-emerald-500/10 border-emerald-500/25", icon: "text-emerald-400", btn: "bg-emerald-500 text-black hover:bg-emerald-400 shadow-emerald-500/25" },
-            };
-            const col = colors[c.accent];
-
-            return (
-              <motion.div key={c.title} initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.25 + i * 0.07 }}
-                className={`flex items-center gap-4 p-4 rounded-2xl border ${col.bg}`}>
-                <div className={`h-11 w-11 rounded-2xl bg-slate-900 flex items-center justify-center flex-shrink-0 ${col.icon}`}>
-                  <Icon className="h-5 w-5" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-white font-bold text-sm">{c.title}</div>
-                  <div className="text-slate-400 text-xs truncate">{c.desc}</div>
-                  <div className="flex items-center gap-1 text-slate-600 text-[10px] mt-0.5">
-                    <Clock className="h-2.5 w-2.5" /> {c.detail}
-                  </div>
-                </div>
-                <motion.button
-                  whileTap={{ scale: 0.93 }}
-                  onClick={() => {
-                    if (c.copyText) {
-                      navigator.clipboard.writeText(c.copyText).catch(() => {});
-                      setCopied(true);
-                      setTimeout(() => setCopied(false), 2000);
-                    }
-                  }}
-                  className={`px-3.5 py-2 rounded-xl text-xs font-black shadow-lg transition cursor-pointer flex-shrink-0 ${col.btn}`}>
-                  {copied ? "Copied!" : c.action}
-                </motion.button>
-              </motion.div>
-            );
-          })}
+          {channels.map((c, i) => (
+            <ChannelCard key={c.title} channel={c} index={i} onAction={startChat} />
+          ))}
         </div>
 
         {/* Status info */}
