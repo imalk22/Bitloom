@@ -1086,9 +1086,17 @@ function TechnicalSignalsPanel({ livePrice, pair }) {
 function ProfitHistoryTable({ trades }) {
   if (trades.length === 0) {
     return (
-      <div className="rounded-3xl bg-slate-950 border border-slate-800 p-10 text-center">
-        <div className="text-slate-600 text-sm mb-1">No trades yet</div>
-        <div className="text-slate-700 text-xs">Place your first trade using the panel above</div>
+      <div className="overflow-hidden rounded-3xl border border-slate-800 bg-slate-950">
+        <div className="border-b border-slate-800 px-5 py-4">
+          <h3 className="font-bold text-white">Your Trades</h3>
+        </div>
+        <div className="px-5 py-16 text-center">
+          <CandlestickChart className="mx-auto mb-3 h-6 w-6 text-slate-700" />
+          <div className="mb-1 text-sm text-slate-400">No trades yet</div>
+          <div className="mx-auto max-w-sm text-xs leading-relaxed text-slate-600">
+            Place your first trade using the trade panel. Your history, realised P&amp;L and win rate will appear here.
+          </div>
+        </div>
       </div>
     );
   }
@@ -4108,6 +4116,9 @@ function FuturesPage({ balance, onTradeDone, onBalanceChange, currentUser, trade
           <ChartPanel symbol={selected.symbol} />
           <PairStatsPanel symbol={selected.symbol} livePrice={livePrice} pair={displayPair} />
           <TechnicalSignalsPanel livePrice={livePrice} pair={displayPair} />
+          {/* Sits in the chart column so it fills the space under the indicators
+              instead of leaving a gap here and an empty full-width box below. */}
+          <ProfitHistoryTable trades={tradeHistory} />
         </section>
         <aside className="space-y-4">
           <BinaryTradePanel
@@ -4126,7 +4137,6 @@ function FuturesPage({ balance, onTradeDone, onBalanceChange, currentUser, trade
           </div>
         </aside>
       </div>
-      <ProfitHistoryTable trades={tradeHistory} />
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <FundingRateWidget />
         <LiquidationTracker />
