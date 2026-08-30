@@ -1,0 +1,10 @@
+{
+  // Static-assets-only Worker: serves the Vite build in ./dist
+  "name": "bitloom",
+  "compatibility_date": "2026-08-30",
+  "assets": {
+    "directory": "./dist",
+    // Client-side routing: /deposit, /checkout, /contact-care, /withdraw
+    "not_found_handling": "single-page-application"
+  }
+}

@@ -444,7 +444,7 @@ function ChartPanel({ symbol }) {
           ))}
         </div>
       </div>
-      <div ref={containerRef} className="h-[280px] w-full bg-[#080d16] sm:h-[380px] xl:h-[480px]" />
+      <div ref={containerRef} className="h-[280px] w-full bg-[#080d16] sm:h-[380px] lg:h-[420px] xl:h-[480px]" />
     </div>
   );
 }
@@ -3840,9 +3840,9 @@ function MarketsPage({ livePairs = pairs, focusPair = null }) {
     <div className="space-y-3">
       {/* Columns size to their own content — the chart column now carries the
           stat panels, so nothing needs stretching to a fixed height. */}
-      <div className="grid grid-cols-1 gap-3 xl:grid-cols-[250px_minmax(0,1fr)_280px] xl:items-start">
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-[220px_minmax(0,1fr)_260px] lg:items-start xl:grid-cols-[250px_minmax(0,1fr)_280px]">
         <aside className="flex flex-col gap-3">
-          <div className="flex max-h-[280px] flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 sm:max-h-[360px] xl:max-h-none">
+          <div className="flex max-h-[280px] flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 sm:max-h-[360px] lg:max-h-[620px]">
             <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
               <h2 className="font-bold text-white">Markets</h2>
               <span className="text-[10px] font-semibold uppercase tracking-wide text-sky-400">{livePairs.length} pairs</span>
@@ -3996,7 +3996,7 @@ function MarketsPage({ livePairs = pairs, focusPair = null }) {
 
         <aside className="flex flex-col gap-3">
           <OrderBook mid={livePrice} />
-          <div className="h-[220px] shrink-0 sm:h-[260px] xl:h-[380px]">
+          <div className="h-[220px] shrink-0 sm:h-[260px] lg:h-[380px]">
             <TradesFeed mid={livePrice} />
           </div>
         </aside>
@@ -4124,7 +4124,7 @@ function FuturesPage({ balance, onTradeDone, onBalanceChange, currentUser, trade
     <div className="space-y-4">
       {/* items-start: columns keep their own height instead of being padded out
           to match the tallest one, which is what left the dead space below them. */}
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[210px_1fr_360px] xl:items-start">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[190px_1fr_320px] lg:items-start xl:grid-cols-[210px_1fr_360px]">
         <aside className="space-y-3">
           <div className="flex items-center justify-between px-1">
             <h2 className="text-white font-bold text-sm">Perpetual Futures</h2>
@@ -4619,7 +4619,7 @@ function App() {
       />
       <TickerBar livePairs={livePairs} />
       {isLoggedIn && balanceError && (
-        <div className="mx-auto max-w-[1600px] px-3 pt-3 sm:px-4 md:px-6 lg:px-8">
+        <div className="mx-auto max-w-[2400px] px-3 pt-3 sm:px-4 md:px-6 lg:px-8">
           <div className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-xs text-amber-300">
             <span>Balance unavailable — {balanceError}</span>
             <button
@@ -4632,7 +4632,7 @@ function App() {
           </div>
         </div>
       )}
-      <main className="mx-auto max-w-[1600px] px-3 pb-4 pt-3 sm:px-4 sm:pt-4 md:p-6 lg:p-8">
+      <main className="mx-auto max-w-[2400px] px-3 pb-4 pt-3 sm:px-4 sm:pt-4 md:p-6 lg:p-8">
         {renderContent()}
       </main>
       <Footer onNavigate={setActivePage} />
