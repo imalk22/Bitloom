@@ -14,6 +14,13 @@ Good for testing login, balance, admin credit, and trades. **Live chat / Socket.
 | `FIREBASE_PROJECT_ID` | `project_id` from the JSON |
 | `FIREBASE_CLIENT_EMAIL` | `client_email` from the JSON |
 | `FIREBASE_PRIVATE_KEY` | `private_key` from the JSON (keep the `\n` characters) |
+| `ADMIN_MAIN_USER` / `ADMIN_MAIN_PASS` | Owner admin — the only one with the Oversight tab |
+| `ADMIN_2_USER` / `ADMIN_2_PASS` | Second admin (optional) |
+| `ADMIN_3_USER` / `ADMIN_3_PASS` | Third admin (optional) |
+
+> Admin credentials are read from the environment only. If none are set the
+> backend starts with admin login disabled and warns on boot. Never hard-code
+> them — this repo is public.
 
 Do **not** set `VITE_API_URL` for same-project deploy (frontend calls `/api/...` on the same domain).
 

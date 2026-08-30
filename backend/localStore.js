@@ -143,6 +143,10 @@ function freezeByEmail(email, frozen, { adminId }) {
   return { uid: user.uid, email: user.email, frozen: !!frozen, balance: Number(user.balance) || 0 };
 }
 
+function listRecentLedger(limit = 300) {
+  return readJson(LEDGER_FILE, []).slice(0, limit);
+}
+
 function listLedgerByEmail(email, limit = 40) {
   const ledger = readJson(LEDGER_FILE, []);
   return ledger.filter((r) => r.email === normalizeEmail(email)).slice(0, limit);
@@ -229,6 +233,7 @@ module.exports = {
   setBalanceByEmail,
   freezeByEmail,
   listLedgerByEmail,
+  listRecentLedger,
   openTrade,
   settleTrade,
   pendingTrades,

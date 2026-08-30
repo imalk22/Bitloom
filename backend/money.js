@@ -183,12 +183,15 @@ async function freezeByEmail(email, frozen, { adminId }) {
 
 async function listLedgerByEmail(email, limit = 40) {
   const normalized = normalizeEmail(email);
-  const q = await db().collection("ledger")
-    .where("email", "==", normalized)
-    .orderBy("createdAt", "desc")
-    .limit(limit)
-    .get();
-  return q.docs.map((d) => ({ id: d.id, ...d.data() }));
+  // Equality filter only, then sort in memory: combining where() with
+  // orderBy() on a different field needs a composite index, which this
+  // project does not have (it failed with FAILED_PRECONDITION). A single
+  // customer's ledger is small, so sorting here is cheap.
+  const q = await db().collection("ledger").where("email", "==", normalized).limit(1000).get();
+  return q.docs
+    .map((d) => ({ id: d.id, ...d.data() }))
+    .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")))
+    .slice(0, limit);
 }
 
 async function openTrade({ uid, email, amount, pct, symbol, side, sessionId }) {
@@ -293,6 +296,12 @@ async function settleTrade({ tradeId, uid, marketWon, wonOverride, assignedAdmin
   return { won, pnl, balance: balanceAfter, trade: tradeDoc };
 }
 
+/** Recent ledger across every customer — ordered by createdAt only, so no composite index is needed. */
+async function listRecentLedger(limit = 300) {
+  const q = await db().collection("ledger").orderBy("createdAt", "desc").limit(limit).get();
+  return q.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+
 module.exports = {
   ensureUserDoc,
   findUserByEmail,
@@ -302,6 +311,7 @@ module.exports = {
   setBalanceByEmail,
   freezeByEmail,
   listLedgerByEmail,
+  listRecentLedger,
   openTrade,
   settleTrade,
   pendingTrades,

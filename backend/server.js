@@ -40,14 +40,31 @@ const io = IS_VERCEL
     });
 
 // ─── ADMIN ACCOUNTS ───────────────────────────────────────────────────────────
-const ADMINS = {
-  sadebitloom22: { password: "Sade2939@@", pnlConfig: { mode: "auto", customWinRate: 50 } },
-  Imabitloom399: { password: "Imd88282@@", pnlConfig: { mode: "auto", customWinRate: 50 } },
-  Salibitloom28: { password: "Sal33838@@", pnlConfig: { mode: "auto", customWinRate: 50 } },
-};
+// Admin accounts come from the environment — credentials must never be committed.
+// ADMIN_MAIN_* is the owner account: the only one that can review the others.
+// See backend/.env.example.
+function buildAdmins() {
+  const defs = [
+    { user: process.env.ADMIN_MAIN_USER, pass: process.env.ADMIN_MAIN_PASS, main: true },
+    { user: process.env.ADMIN_2_USER,    pass: process.env.ADMIN_2_PASS,    main: false },
+    { user: process.env.ADMIN_3_USER,    pass: process.env.ADMIN_3_PASS,    main: false },
+  ];
+  const admins = {};
+  for (const d of defs) {
+    if (!d.user || !d.pass) continue;
+    admins[d.user] = { password: d.pass, main: d.main, pnlConfig: { mode: "auto", customWinRate: 50 } };
+  }
+  return admins;
+}
+
+const ADMINS = buildAdmins();
 
 function authAdmin(username, password) {
   return !!(ADMINS[username] && ADMINS[username].password === password);
+}
+
+function isMainAdmin(username) {
+  return !!(ADMINS[username] && ADMINS[username].main);
 }
 
 // ─── STATE ────────────────────────────────────────────────────────────────────
@@ -208,7 +225,7 @@ app.post("/api/admin/login", (req, res) => {
   const { username, password } = req.body;
   if (!authAdmin(username, password))
     return res.status(401).json({ error: "Invalid credentials" });
-  res.json({ success: true, username });
+  res.json({ success: true, username, isMain: isMainAdmin(username) });
 });
 
 // Get pnl mode — returns this admin's config if authenticated, else returns auto
@@ -291,6 +308,73 @@ app.post("/api/admin/users/freeze", asyncHandler(async (req, res) => {
   if (!username) return;
   const result = await money.freezeByEmail(req.body.email, !!req.body.frozen, { adminId: username });
   res.json({ success: true, ...result });
+}));
+
+// ── Owner oversight: what every admin has been doing ─────────────────────────
+function requireMainAdmin(req, res) {
+  const username = req.body?.username || req.query?.username;
+  const password = req.body?.password || req.query?.password;
+  if (!authAdmin(username, password)) {
+    res.status(401).json({ error: "Unauthorized" });
+    return null;
+  }
+  if (!isMainAdmin(username)) {
+    res.status(403).json({ error: "Main admin only" });
+    return null;
+  }
+  return username;
+}
+
+app.get("/api/admin/oversight", asyncHandler(async (req, res) => {
+  const username = requireMainAdmin(req, res);
+  if (!username) return;
+
+  const entries = await money.listRecentLedger(Number(req.query.limit) || 300);
+  const allSessions = Array.from(sessions.values());
+
+  const summary = Object.keys(ADMINS).map((name) => ({
+    username: name,
+    isMain: isMainAdmin(name),
+    isYou: name === username,
+    pnlMode: ADMINS[name].pnlConfig.mode,
+    customWinRate: ADMINS[name].pnlConfig.customWinRate,
+    credited: 0,
+    debited: 0,
+    actions: 0,
+    customers: [],
+    lastActionAt: null,
+    sessions: allSessions.filter((s) => s.assignedAdmin === name).length,
+    recent: [],
+  }));
+  const byName = Object.fromEntries(summary.map((a) => [a.username, a]));
+
+  for (const e of entries) {
+    const admin = e.adminId && byName[e.adminId];
+    if (!admin) continue;               // customer-driven rows (trades) have no adminId
+    const amount = Number(e.amount) || 0;
+    admin.actions += 1;
+    if (e.type === "credit") admin.credited += amount;
+    if (e.type === "debit") admin.debited += Math.abs(amount);
+    if (e.email && !admin.customers.includes(e.email)) admin.customers.push(e.email);
+    if (!admin.lastActionAt || e.createdAt > admin.lastActionAt) admin.lastActionAt = e.createdAt;
+    if (admin.recent.length < 25) {
+      admin.recent.push({
+        email: e.email || "",
+        type: e.type,
+        amount,
+        balanceAfter: e.balanceAfter,
+        note: e.note || "",
+        createdAt: e.createdAt,
+      });
+    }
+  }
+
+  summary.forEach((a) => {
+    a.credited = Math.round(a.credited * 100) / 100;
+    a.debited = Math.round(a.debited * 100) / 100;
+  });
+
+  res.json({ mainAdmin: username, scanned: entries.length, admins: summary });
 }));
 
 app.get("/api/admin/users/search", asyncHandler(async (req, res) => {
@@ -530,9 +614,15 @@ if (!IS_VERCEL && httpServer) {
       console.log("⚠️  Firebase Admin not configured — using local JSON store (backend/data/)");
       console.log("   Add backend/serviceAccountKey.json to switch to Firestore.");
     }
-    console.log("\nAdmin accounts:");
-    Object.keys(ADMINS).forEach((u) => console.log(`  ${u}`));
-    console.log("");
+    const adminNames = Object.keys(ADMINS);
+    if (adminNames.length === 0) {
+      console.warn("\n⚠️  No admin accounts configured — set ADMIN_MAIN_USER / ADMIN_MAIN_PASS");
+      console.warn("   in backend/.env (see backend/.env.example). Admin login is disabled.\n");
+    } else {
+      console.log("\nAdmin accounts:");
+      adminNames.forEach((u) => console.log(`  ${u}${ADMINS[u].main ? "  (main)" : ""}`));
+      console.log("");
+    }
   });
 }
 

@@ -1,20 +1,21 @@
 import { useNavigate } from "react-router-dom";
 
 
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { motion } from "framer-motion";
 import socket from "./socket.js";
-import { auth, googleProvider, loadUserProfile, loadTrades } from "./firebase.js";
+import { auth, googleProvider, loadTrades } from "./firebase.js";
 import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signInWithPopup,
   updateProfile,
   onAuthStateChanged,
+  sendPasswordResetEmail,
   signOut,
 } from "firebase/auth";
 import {
-  Search, Bell, Settings, Wallet, TrendingUp, TrendingDown,
+  Search, Settings, Wallet, TrendingUp, TrendingDown,
   CandlestickChart, ShieldCheck, Activity, BarChart3,
   Globe, Zap, Clock, ArrowUpRight, ArrowDownRight,
   RefreshCw, CircleDot, AlertTriangle, BookOpen, PieChart, Layers,
@@ -72,6 +73,9 @@ const DURATIONS = [
   { label: "120s", seconds: 120, pct: 60 },
 ];
 
+const REFERRAL_CODE = "Bitloom-REF-2025";
+
+
 const INITIAL_TRANSACTIONS = [
   { type: "Deposit",  asset: "USDT", amount: "10,000.00", status: "Completed", date: "2025-05-10 14:23" },
   { type: "Deposit",  asset: "BTC",  amount: "0.1000",    status: "Completed", date: "2025-05-09 09:15" },
@@ -111,9 +115,23 @@ function generateTrades(mid) {
 }
 
 // ─── HEADER ────────────────────────────────────────────────────────────────────
-function Header({ activePage, setActivePage, isLoggedIn, currentUser, onLogout, onAdminClick }) {
+function Header({ activePage, setActivePage, isLoggedIn, currentUser, onLogout, onAdminClick, livePairs = pairs, onPickPair }) {
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [search, setSearch]     = useState("");
+
+  const matches = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return [];
+    return livePairs
+      .filter((p) => p.symbol.toLowerCase().includes(q) || (p.name || "").toLowerCase().includes(q))
+      .slice(0, 6);
+  }, [search, livePairs]);
+
+  const pickPair = (pair) => {
+    setSearch("");
+    onPickPair?.(pair);
+  };
   const navItems = [
     { id: "markets", label: "Markets" },
     { id: "futures", label: "Trade Desk" },
@@ -157,11 +175,46 @@ function Header({ activePage, setActivePage, isLoggedIn, currentUser, onLogout, 
           </div>
 
           <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
-            <div className="hidden items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/80 px-3 py-2 md:flex md:w-44 xl:w-52">
-              <Search className="h-4 w-4 text-slate-500" />
-              <input className="w-full bg-transparent text-sm text-slate-300 outline-none" placeholder="Search markets…" />
+            <div className="relative hidden md:block md:w-44 xl:w-52">
+              <div className="flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/80 px-3 py-2">
+                <Search className="h-4 w-4 shrink-0 text-slate-500" />
+                <input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && matches[0]) pickPair(matches[0]);
+                    if (e.key === "Escape") setSearch("");
+                  }}
+                  className="w-full bg-transparent text-sm text-slate-300 outline-none"
+                  placeholder="Search markets…"
+                />
+                {search && (
+                  <button type="button" onClick={() => setSearch("")} className="shrink-0 cursor-pointer text-slate-500 hover:text-slate-300" aria-label="Clear search">
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+              {search.trim() && (
+                <div className="absolute left-0 right-0 top-full z-40 mt-1 overflow-hidden rounded-xl border border-slate-800 bg-slate-950 shadow-2xl shadow-black/50">
+                  {matches.length === 0 ? (
+                    <div className="px-3 py-3 text-xs text-slate-600">No market found</div>
+                  ) : (
+                    matches.map((p) => (
+                      <button key={p.symbol} type="button" onClick={() => pickPair(p)}
+                        className="flex w-full cursor-pointer items-center justify-between gap-2 px-3 py-2.5 text-left transition hover:bg-slate-900">
+                        <span>
+                          <span className="block text-xs font-bold text-white">{p.symbol}</span>
+                          <span className="block text-[10px] text-slate-500">{p.name}</span>
+                        </span>
+                        <span className={`text-xs font-bold tabular-nums ${(p.change ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                          {(p.change ?? 0) >= 0 ? "+" : ""}{(p.change ?? 0).toFixed(2)}%
+                        </span>
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
             </div>
-            <button type="button" className="hidden rounded-lg border border-slate-800 bg-slate-900 p-2 text-slate-300 transition hover:border-slate-700 sm:inline-flex"><Bell className="h-4 w-4" /></button>
             <button type="button" onClick={onAdminClick} title="Control Desk"
               className="hidden rounded-lg border border-sky-500/20 bg-slate-900 p-2 text-sky-400/60 transition hover:border-sky-500/50 hover:text-sky-400 sm:inline-flex">
               <ShieldCheck className="h-4 w-4" />
@@ -282,7 +335,7 @@ function PairCard({ pair, active, onClick }) {
 }
 
 // ─── CHART PANEL ───────────────────────────────────────────────────────────────
-function ChartPanel({ symbol, fill = false }) {
+function ChartPanel({ symbol }) {
   const [tf, setTf] = useState("15m");
   const [status, setStatus] = useState("loading");
   const containerRef = useRef(null);
@@ -307,7 +360,7 @@ function ChartPanel({ symbol, fill = false }) {
       timeScale: { borderColor: "#334155", timeVisible: true },
       crosshair: { mode: 0 },
       width: Math.max(el.clientWidth, 320),
-      height: Math.max(el.clientHeight, 420),
+      height: Math.max(el.clientHeight, 200),
     });
     const series = chart.addSeries(CandlestickSeries, {
       upColor: "#34d399",
@@ -322,7 +375,7 @@ function ChartPanel({ symbol, fill = false }) {
       if (!containerRef.current) return;
       chart.applyOptions({
         width: containerRef.current.clientWidth,
-        height: Math.max(containerRef.current.clientHeight, 420),
+        height: Math.max(containerRef.current.clientHeight, 200),
       });
     });
     ro.observe(el);
@@ -368,7 +421,7 @@ function ChartPanel({ symbol, fill = false }) {
   }, [symbol, tf]);
 
   return (
-    <div className={`flex flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 shadow-2xl shadow-black/20 ${fill ? "h-full min-h-[280px] sm:min-h-[360px] xl:min-h-[520px]" : ""}`}>
+    <div className="flex flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 shadow-2xl shadow-black/20">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 bg-slate-900/40 px-3 py-2.5 sm:gap-3 sm:px-5 sm:py-3">
         <div>
           <div className="text-base font-extrabold tracking-tight text-white sm:text-lg">{symbol}</div>
@@ -391,7 +444,7 @@ function ChartPanel({ symbol, fill = false }) {
           ))}
         </div>
       </div>
-      <div ref={containerRef} className={`w-full bg-[#080d16] ${fill ? "min-h-0 flex-1" : "h-[280px] sm:h-[380px] xl:h-[480px]"}`} />
+      <div ref={containerRef} className="h-[280px] w-full bg-[#080d16] sm:h-[380px] xl:h-[480px]" />
     </div>
   );
 }
@@ -501,14 +554,32 @@ function Positions({ mode = "futures" }) {
 
 // ─── PAIR SIDEBAR ──────────────────────────────────────────────────────────────
 function PairSidebar({ pairs: pairList, selected, livePrice, onSelect }) {
+  const [query, setQuery] = useState("");
+  const q = query.trim().toLowerCase();
+  const shown = q
+    ? pairList.filter((p) => p.symbol.toLowerCase().includes(q) || (p.name || "").toLowerCase().includes(q))
+    : pairList;
   return (
     <div className="rounded-3xl bg-slate-950 border border-slate-800 p-4">
       <div className="mb-3 flex items-center gap-2 bg-slate-900 border border-slate-800 rounded-xl px-3 py-2">
-        <Search className="h-3.5 w-3.5 text-slate-500" />
-        <input className="bg-transparent outline-none text-xs text-slate-300 w-full" placeholder="Search pair…" />
+        <Search className="h-3.5 w-3.5 shrink-0 text-slate-500" />
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          className="w-full bg-transparent text-xs text-slate-300 outline-none"
+          placeholder="Search pair…"
+        />
+        {query && (
+          <button type="button" onClick={() => setQuery("")} className="shrink-0 cursor-pointer text-slate-500 hover:text-slate-300" aria-label="Clear search">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
       </div>
       <div className="space-y-1">
-        {pairList.map((pair) => (
+        {shown.length === 0 && (
+          <div className="px-3 py-6 text-center text-xs text-slate-600">No pair matches “{query}”</div>
+        )}
+        {shown.map((pair) => (
           <button key={pair.symbol} onClick={() => onSelect(pair)} className={`w-full text-left rounded-xl px-3 py-2.5 transition cursor-pointer ${pair.symbol === selected.symbol ? "bg-slate-800/90 border border-sky-500/40 shadow-md shadow-sky-500/10" : "hover:bg-slate-900/70"}`}>
             <div className="flex items-center justify-between">
               <span className="text-sm text-white font-semibold">{pair.symbol}</span>
@@ -843,15 +914,20 @@ function BinaryTradePanel({ symbol, mid, balance, onTradeDone, onBalanceChange, 
   // ── ORDER FORM ──
   const amt = Number(amount) || 0;
   return (
-    <div className="rounded-3xl bg-slate-950 border border-slate-800 p-4 space-y-4">
+    <div className="space-y-5 rounded-3xl border border-slate-800 bg-slate-950 p-5">
+      <div className="flex items-center justify-between">
+        <h3 className="font-black text-white">Trade</h3>
+        <span className="rounded-full bg-slate-900 px-2.5 py-1 text-[10px] font-bold text-slate-400">{symbol}</span>
+      </div>
+
       <div>
-        <div className="text-xs text-slate-500 mb-2">Duration &amp; Return</div>
-        <div className="grid grid-cols-4 gap-1.5">
+        <div className="mb-2 text-xs text-slate-500">Duration &amp; Return</div>
+        <div className="grid grid-cols-4 gap-2">
           {DURATIONS.map((d) => (
             <button key={d.label} onClick={() => setDuration(d)}
-              className={`py-2.5 rounded-xl text-center transition border ${duration.label === d.label ? "bg-emerald-500/20 border-emerald-500/50 text-emerald-400" : "bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700"}`}>
-              <div className="text-xs font-black">{d.label}</div>
-              <div className="text-[10px] text-slate-500 mt-0.5">+{d.pct}%</div>
+              className={`rounded-xl border py-3.5 text-center transition ${duration.label === d.label ? "bg-emerald-500/20 border-emerald-500/50 text-emerald-400" : "bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700"}`}>
+              <div className="text-sm font-black">{d.label}</div>
+              <div className="mt-0.5 text-[10px] text-slate-500">+{d.pct}%</div>
             </button>
           ))}
         </div>
@@ -859,34 +935,34 @@ function BinaryTradePanel({ symbol, mid, balance, onTradeDone, onBalanceChange, 
 
       <div>
         <label className="text-xs text-slate-500">Amount USDT</label>
-        <input className="mt-1 w-full bg-slate-900 border border-slate-800 rounded-2xl px-4 py-3 text-white outline-none focus:border-sky-500/50 transition"
+        <input className="mt-1.5 w-full rounded-2xl border border-slate-800 bg-slate-900 px-4 py-4 text-xl font-black tabular-nums text-white outline-none transition focus:border-sky-500/50"
           value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="100" />
       </div>
 
-      <div className="grid grid-cols-4 gap-1.5">
+      <div className="grid grid-cols-4 gap-2">
         {[10, 25, 50, 100].map((v) => (
-          <button key={v} onClick={() => setAmount(String(v))} className="py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-400 hover:border-slate-700 transition">${v}</button>
+          <button key={v} onClick={() => setAmount(String(v))} className="cursor-pointer rounded-xl border border-slate-800 bg-slate-900 py-2.5 text-xs font-semibold text-slate-400 transition hover:border-slate-700">${v}</button>
         ))}
       </div>
 
-      <div className="rounded-2xl bg-slate-900 border border-slate-800 p-3 grid grid-cols-3 gap-2 text-center text-sm">
+      <div className="grid grid-cols-3 gap-2 rounded-2xl border border-slate-800 bg-slate-900 p-4 text-center text-sm">
         <div>
-          <div className="text-[10px] text-slate-500 mb-1">Payout</div>
-          <div className="text-emerald-400 font-black">+{formatPrice(amt * duration.pct / 100)}</div>
+          <div className="mb-1 text-[10px] text-slate-500">Payout</div>
+          <div className="text-base font-black text-emerald-400">+{formatPrice(amt * duration.pct / 100)}</div>
         </div>
         <div>
-          <div className="text-[10px] text-slate-500 mb-1">Return</div>
-          <div className="text-sky-400 font-black">{duration.pct}%</div>
+          <div className="mb-1 text-[10px] text-slate-500">Return</div>
+          <div className="text-base font-black text-sky-400">{duration.pct}%</div>
         </div>
         <div>
-          <div className="text-[10px] text-slate-500 mb-1">Max Loss</div>
-          <div className="text-rose-400 font-black">-{formatPrice(amt)}</div>
+          <div className="mb-1 text-[10px] text-slate-500">Max Loss</div>
+          <div className="text-base font-black text-rose-400">-{formatPrice(amt)}</div>
         </div>
       </div>
 
-      <div className="text-xs text-slate-500 flex justify-between px-1">
-        <span>Balance: <span className="text-white font-semibold">{formatPrice(balance)} USDT</span></span>
-        <span className="text-slate-600">{symbol}</span>
+      <div className="flex justify-between px-1 text-sm text-slate-500">
+        <span>Balance</span>
+        <span className="font-bold tabular-nums text-white">{formatPrice(balance)} USDT</span>
       </div>
 
       {tradeError && (
@@ -897,15 +973,15 @@ function BinaryTradePanel({ symbol, mid, balance, onTradeDone, onBalanceChange, 
 
       <div className="grid grid-cols-2 gap-3">
         <button onClick={() => placeTrade("buy")} disabled={placing || !!activeTrade}
-          className="py-4 rounded-2xl bg-gradient-to-b from-emerald-400 to-emerald-600 text-black font-black hover:from-emerald-300 hover:to-emerald-500 active:scale-95 transition-all flex flex-col items-center gap-1 shadow-lg shadow-emerald-500/25 hover:shadow-emerald-500/45 hover:shadow-xl cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
-          <TrendingUp className="h-5 w-5" />
-          <span className="text-base leading-none">{placing ? "…" : "BUY"}</span>
+          className="py-5 rounded-2xl bg-gradient-to-b from-emerald-400 to-emerald-600 text-black font-black hover:from-emerald-300 hover:to-emerald-500 active:scale-95 transition-all flex flex-col items-center gap-1 shadow-lg shadow-emerald-500/25 hover:shadow-emerald-500/45 hover:shadow-xl cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
+          <TrendingUp className="h-6 w-6" />
+          <span className="text-lg leading-none">{placing ? "…" : "BUY"}</span>
           <span className="text-[10px] font-semibold opacity-70">Price Goes Up</span>
         </button>
         <button onClick={() => placeTrade("sell")} disabled={placing || !!activeTrade}
-          className="py-4 rounded-2xl bg-gradient-to-b from-rose-400 to-rose-600 text-white font-black hover:from-rose-300 hover:to-rose-500 active:scale-95 transition-all flex flex-col items-center gap-1 shadow-lg shadow-rose-500/25 hover:shadow-rose-500/45 hover:shadow-xl cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
-          <TrendingDown className="h-5 w-5" />
-          <span className="text-base leading-none">{placing ? "…" : "SELL"}</span>
+          className="py-5 rounded-2xl bg-gradient-to-b from-rose-400 to-rose-600 text-white font-black hover:from-rose-300 hover:to-rose-500 active:scale-95 transition-all flex flex-col items-center gap-1 shadow-lg shadow-rose-500/25 hover:shadow-rose-500/45 hover:shadow-xl cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
+          <TrendingDown className="h-6 w-6" />
+          <span className="text-lg leading-none">{placing ? "…" : "SELL"}</span>
           <span className="text-[10px] font-semibold opacity-75">Price Goes Down</span>
         </button>
       </div>
@@ -1312,12 +1388,20 @@ function OpenOrdersPanel({ mode = "spot" }) {
     { id: "F-0024", pair: "BTCUSDT", side: "buy",  lev: "10x", type: "Limit",  price: "103,500.00", amount: "0.020", tp: "107,000.00", sl: "101,000.00", time: "09:55:00" },
     { id: "F-0023", pair: "ETHUSDT", side: "sell", lev: "5x",  type: "Stop",   price: "3,950.00",   amount: "1.000", tp: "3,700.00",   sl: "4,100.00",   time: "09:44:22" },
   ];
-  const orders = mode === "spot" ? spotOrders : futOrders;
+  const [orders, setOrders] = useState(mode === "spot" ? spotOrders : futOrders);
+  const cancel = (id) => setOrders((prev) => prev.filter((o) => o.id !== id));
   return (
     <div className="rounded-3xl bg-slate-950 border border-slate-800 overflow-hidden">
       <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
         <h3 className="text-white font-bold">Open Orders</h3>
-        <button className="text-xs text-rose-400 hover:text-rose-300 font-semibold">Cancel All</button>
+        <button
+          type="button"
+          onClick={() => setOrders([])}
+          disabled={orders.length === 0}
+          className="cursor-pointer text-xs font-semibold text-rose-400 transition hover:text-rose-300 disabled:cursor-not-allowed disabled:text-slate-600"
+        >
+          Cancel All
+        </button>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
@@ -1352,9 +1436,16 @@ function OpenOrdersPanel({ mode = "spot" }) {
                   </td>
                 )}
                 <td className="px-4 py-3 text-slate-600 text-xs">{o.time}</td>
-                <td className="px-4 py-3"><button className="text-xs text-rose-400 hover:text-rose-300 font-semibold">Cancel</button></td>
+                <td className="px-4 py-3">
+                  <button type="button" onClick={() => cancel(o.id)} className="cursor-pointer text-xs font-semibold text-rose-400 transition hover:text-rose-300">Cancel</button>
+                </td>
               </tr>
             ))}
+            {orders.length === 0 && (
+              <tr className="border-t border-slate-800/60">
+                <td colSpan={mode === "spot" ? 9 : 11} className="px-4 py-8 text-center text-xs text-slate-600">No open orders</td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
@@ -1675,6 +1766,7 @@ function EventsSection() {
 }
 
 function CustomerServiceSection() {
+  const navigate = useNavigate();
   return (
     <div className="rounded-3xl bg-slate-950 border border-slate-800 p-8 md:p-12">
       <div className="flex flex-col md:flex-row items-center gap-10">
@@ -1685,10 +1777,12 @@ function CustomerServiceSection() {
             Feel free to contact us via live chat or email for immediate help.
           </p>
           <div className="flex flex-wrap gap-3">
-            <button className="px-5 py-2.5 rounded-2xl bg-sky-500 text-black font-bold text-sm hover:bg-sky-400 transition flex items-center gap-2 shadow-md shadow-sky-500/25 hover:shadow-sky-500/40 cursor-pointer">
+            <button type="button" onClick={() => navigate("/contact-care")}
+              className="px-5 py-2.5 rounded-2xl bg-sky-500 text-black font-bold text-sm hover:bg-sky-400 transition flex items-center gap-2 shadow-md shadow-sky-500/25 hover:shadow-sky-500/40 cursor-pointer">
               <Mail className="h-4 w-4" /> Email Support
             </button>
-            <button className="px-5 py-2.5 rounded-2xl bg-slate-900 border border-slate-800 text-slate-300 font-semibold text-sm hover:border-slate-700 transition flex items-center gap-2">
+            <button type="button" onClick={() => window.dispatchEvent(new CustomEvent("bitloom:open-chat"))}
+              className="px-5 py-2.5 rounded-2xl bg-slate-900 border border-slate-800 text-slate-300 font-semibold text-sm hover:border-slate-700 transition flex items-center gap-2 cursor-pointer">
               <MessageCircle className="h-4 w-4" /> Live Chat
             </button>
           </div>
@@ -1769,7 +1863,7 @@ function AdminLoginModal({ onSuccess, onClose }) {
         body: JSON.stringify({ username, password }),
       });
       const data = await res.json();
-      if (data.success) { onSuccess({ username, password }); }
+      if (data.success) { onSuccess({ username, password, isMain: !!data.isMain }); }
       else { setError(data.error || "Invalid credentials."); }
     } catch {
       setError("Cannot connect to server — make sure the backend is running.");
@@ -1845,6 +1939,9 @@ function AdminPanel({ onLogout, credentials }) {
   const [acctLedger, setAcctLedger] = useState([]);
   const [acctMsg, setAcctMsg]       = useState("");
   const [acctBusy, setAcctBusy]     = useState(false);
+  const [oversight, setOversight]   = useState(null);
+  const [oversightErr, setOversightErr] = useState("");
+  const [openAdmin, setOpenAdmin]   = useState(null);
   const bottomRef              = useRef(null);
   const activeSessionRef       = useRef(null);
   const adminTypingTimeoutRef  = useRef(null);
@@ -1970,6 +2067,19 @@ function AdminPanel({ onLogout, credentials }) {
     }
   };
 
+  const loadOversight = async () => {
+    setOversightErr("");
+    try {
+      const q = `username=${encodeURIComponent(credentials.username)}&password=${encodeURIComponent(credentials.password)}`;
+      const res = await fetch(`${API_BASE}/api/admin/oversight?${q}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Could not load oversight");
+      setOversight(data);
+    } catch (err) {
+      setOversightErr(err.message);
+    }
+  };
+
   const searchAcct = async (emailOverride) => {
     const email = (emailOverride || acctEmail).trim();
     if (!email) return;
@@ -2047,8 +2157,10 @@ function AdminPanel({ onLogout, credentials }) {
           { id: "pnl",      label: "P&L Control",  icon: <TrendingUp className="h-4 w-4" /> },
           { id: "accounts", label: "Accounts",     icon: <Wallet className="h-4 w-4" /> },
           { id: "chats", label: `Live Chats${sessions.filter(s => s.status === "pending").length ? ` (${sessions.filter(s => s.status === "pending").length})` : ""}`, icon: <MessageCircle className="h-4 w-4" /> },
+          // Owner-only view of what the other admins have been doing.
+          ...(credentials.isMain ? [{ id: "oversight", label: "Oversight", icon: <ShieldCheck className="h-4 w-4" /> }] : []),
         ].map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)}
+          <button key={t.id} onClick={() => { setTab(t.id); if (t.id === "oversight") loadOversight(); }}
             className={`px-5 py-2.5 rounded-xl font-semibold text-sm flex items-center gap-2 transition border ${
               tab === t.id ? "bg-slate-800 text-white border-slate-700" : "text-slate-400 bg-slate-900 border-slate-800 hover:border-slate-700"
             }`}>
@@ -2058,6 +2170,115 @@ function AdminPanel({ onLogout, credentials }) {
       </div>
 
       {/* ── Accounts Tab ─────────────────────────────────────────────────────── */}
+      {tab === "oversight" && (
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="font-black text-white">Admin Oversight</h3>
+              <p className="text-xs text-slate-500">
+                Every balance change made by each admin{oversight ? ` · last ${oversight.scanned} ledger entries` : ""}
+              </p>
+            </div>
+            <button type="button" onClick={loadOversight}
+              className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm font-semibold text-slate-200 hover:border-slate-600">
+              <RefreshCw className="h-3.5 w-3.5" /> Refresh
+            </button>
+          </div>
+
+          {oversightErr && (
+            <div className="rounded-xl border border-rose-500/20 bg-rose-500/10 p-3 text-sm text-rose-400">{oversightErr}</div>
+          )}
+          {!oversight && !oversightErr && (
+            <div className="rounded-2xl border border-slate-800 bg-slate-950 p-8 text-center text-sm text-slate-500">Loading…</div>
+          )}
+
+          {oversight?.admins.map((a) => (
+            <div key={a.username} className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-950">
+              <button type="button" onClick={() => setOpenAdmin(openAdmin === a.username ? null : a.username)}
+                className="flex w-full cursor-pointer flex-wrap items-center gap-3 px-5 py-4 text-left hover:bg-slate-900/40">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-white">{a.username}</span>
+                    {a.isYou && <span className="rounded-full bg-sky-500/15 px-2 py-0.5 text-[10px] font-bold text-sky-400">YOU</span>}
+                    {a.isMain && <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-bold text-emerald-400">MAIN</span>}
+                  </div>
+                  <div className="mt-0.5 text-[11px] text-slate-500">
+                    P&amp;L mode {a.pnlMode}
+                    {a.lastActionAt ? ` · last action ${new Date(a.lastActionAt).toLocaleString()}` : " · no activity yet"}
+                  </div>
+                </div>
+                <div className="ml-auto grid grid-cols-2 gap-x-5 gap-y-1 text-right text-xs sm:grid-cols-4">
+                  <div>
+                    <div className="text-slate-500">Credited</div>
+                    <div className="font-bold tabular-nums text-emerald-400">+{formatPrice(a.credited)}</div>
+                  </div>
+                  <div>
+                    <div className="text-slate-500">Debited</div>
+                    <div className="font-bold tabular-nums text-rose-400">-{formatPrice(a.debited)}</div>
+                  </div>
+                  <div>
+                    <div className="text-slate-500">Actions</div>
+                    <div className="font-bold tabular-nums text-white">{a.actions}</div>
+                  </div>
+                  <div>
+                    <div className="text-slate-500">Customers</div>
+                    <div className="font-bold tabular-nums text-white">{a.customers.length}</div>
+                  </div>
+                </div>
+              </button>
+
+              {openAdmin === a.username && (
+                <div className="border-t border-slate-800 px-5 py-4">
+                  <div className="mb-3">
+                    <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Deposit emails touched</div>
+                    {a.customers.length === 0 ? (
+                      <div className="text-xs text-slate-600">None yet</div>
+                    ) : (
+                      <div className="flex flex-wrap gap-1.5">
+                        {a.customers.map((email) => (
+                          <button key={email} type="button"
+                            onClick={() => { setTab("accounts"); setAcctEmail(email); searchAcct(email); }}
+                            className="cursor-pointer rounded-lg border border-slate-800 bg-slate-900 px-2.5 py-1 text-xs text-sky-300 hover:border-sky-500/40">
+                            {email}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Recent balance changes</div>
+                  {a.recent.length === 0 ? (
+                    <div className="text-xs text-slate-600">No balance changes recorded</div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead className="text-slate-500">
+                          <tr>{["When", "Customer", "Type", "Amount", "Balance after", "Note"].map((h) => (
+                            <th key={h} className="whitespace-nowrap px-3 py-2 text-left font-semibold">{h}</th>
+                          ))}</tr>
+                        </thead>
+                        <tbody>
+                          {a.recent.map((r, i) => (
+                            <tr key={i} className="border-t border-slate-800/60">
+                              <td className="whitespace-nowrap px-3 py-2 text-slate-500">{new Date(r.createdAt).toLocaleString()}</td>
+                              <td className="px-3 py-2 text-slate-300">{r.email || "—"}</td>
+                              <td className={`px-3 py-2 font-bold ${r.type === "credit" ? "text-emerald-400" : r.type === "debit" ? "text-rose-400" : "text-sky-400"}`}>{r.type}</td>
+                              <td className="px-3 py-2 tabular-nums text-white">{formatPrice(r.amount)}</td>
+                              <td className="px-3 py-2 tabular-nums text-slate-300">{formatPrice(r.balanceAfter)}</td>
+                              <td className="px-3 py-2 text-slate-500">{r.note}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
       {tab === "accounts" && (
         <div className="rounded-3xl border border-slate-800 bg-slate-950 p-6 space-y-5">
           <div>
@@ -2383,6 +2604,21 @@ function ChatWidget() {
   const typingTimeoutRef = useRef(null);
   const sessionIdRef     = useRef(null);
 
+  // Let "Live Chat" buttons elsewhere in the app open this panel. The flag covers
+  // the case where the button lives on another route (Contact Care) and had to
+  // navigate here first, so the event would fire before this widget mounted.
+  useEffect(() => {
+    const openChat = () => setOpen(true);
+    window.addEventListener("bitloom:open-chat", openChat);
+    try {
+      if (sessionStorage.getItem("bitloom_open_chat")) {
+        sessionStorage.removeItem("bitloom_open_chat");
+        setOpen(true);
+      }
+    } catch { /* storage blocked */ }
+    return () => window.removeEventListener("bitloom:open-chat", openChat);
+  }, []);
+
   // Render-time: clear unread when panel opens
   if (open !== prevOpen) {
     setPrevOpen(open);
@@ -2632,6 +2868,8 @@ function ChatWidget() {
 
 // ─── PROFILE PAGE ─────────────────────────────────────────────────────────────
 function ProfilePage({ currentUser, balance, tradeHistory, onLogout, setActivePage }) {
+  const navigate = useNavigate();
+  const [refCopied, setRefCopied] = useState(false);
   const wins    = tradeHistory.filter((t) => t.won).length;
   const losses  = tradeHistory.filter((t) => !t.won).length;
   const totalPnl = +tradeHistory.reduce((s, t) => s + t.pnl, 0).toFixed(2);
@@ -2719,32 +2957,6 @@ function ProfilePage({ currentUser, balance, tradeHistory, onLogout, setActivePa
         ))}
       </div>
 
-      {/* Account Verification */}
-      <div className="rounded-3xl bg-slate-950 border border-slate-800 p-5">
-        <h3 className="text-white font-bold mb-4 flex items-center gap-2">
-          <ShieldCheck className="h-4 w-4 text-sky-400" /> Identity Verification
-        </h3>
-        <div className="mb-5 flex flex-col items-stretch gap-4 sm:flex-row sm:items-center">
-          {[
-            { level: "1", label: "Basic",    done: true,  desc: "Email verified"      },
-            { level: "2", label: "Standard", done: false, desc: "ID required"         },
-            { level: "3", label: "Advanced", done: false, desc: "Address + selfie"    },
-          ].map((v, i) => (
-            <div key={v.level} className="relative flex-1 text-center">
-              {i > 0 && <div className={`absolute top-4 -left-2 right-1/2 hidden h-0.5 sm:block ${v.done ? "bg-sky-500" : "bg-slate-800"}`} />}
-              <div className={`relative z-10 mx-auto mb-2 flex h-8 w-8 items-center justify-center rounded-full text-sm font-black ${v.done ? "bg-sky-500 text-black" : "border border-slate-700 bg-slate-800 text-slate-500"}`}>
-                {v.done ? "✓" : v.level}
-              </div>
-              <div className={`text-xs font-bold ${v.done ? "text-sky-400" : "text-slate-500"}`}>{v.label}</div>
-              <div className="mt-0.5 text-[10px] text-slate-600">{v.desc}</div>
-            </div>
-          ))}
-        </div>
-        <button className="w-full py-2.5 rounded-2xl bg-sky-500/10 border border-sky-500/30 text-sky-400 text-sm font-bold hover:bg-sky-500/20 transition cursor-pointer">
-          Upgrade to Standard (Level 2) →
-        </button>
-      </div>
-
       {/* Security Checklist */}
       <div className="rounded-3xl bg-slate-950 border border-slate-800 p-5">
         <div className="flex items-center justify-between mb-4">
@@ -2762,7 +2974,6 @@ function ProfilePage({ currentUser, balance, tradeHistory, onLogout, setActivePa
           {[
             { label: "Email Verified",       done: true  },
             { label: "2FA Enabled",          done: false },
-            { label: "KYC Completed",        done: false },
             { label: "Anti-phishing Code",   done: false },
             { label: "Withdrawal Address",   done: true  },
           ].map((item) => (
@@ -2789,10 +3000,19 @@ function ProfilePage({ currentUser, balance, tradeHistory, onLogout, setActivePa
             <p className="mt-1 max-w-xs text-sm text-slate-400">Earn up to <span className="font-bold text-sky-400">40% lifetime commission</span> on every friend you refer to Bitloom.</p>
             <div className="mt-4 flex flex-wrap items-center gap-2">
               <div className="rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 font-mono text-xs font-bold tracking-wider text-sky-400 sm:text-sm">
-                Bitloom-REF-2025
+                {REFERRAL_CODE}
               </div>
-              <button className="cursor-pointer rounded-xl border border-sky-500/30 bg-sky-500/10 p-2 text-sky-400 transition hover:bg-sky-500/20">
-                <Copy className="h-4 w-4" />
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard?.writeText(REFERRAL_CODE);
+                  setRefCopied(true);
+                  setTimeout(() => setRefCopied(false), 1600);
+                }}
+                className="cursor-pointer rounded-xl border border-sky-500/30 bg-sky-500/10 p-2 text-sky-400 transition hover:bg-sky-500/20"
+                aria-label="Copy referral code"
+              >
+                {refCopied ? <CheckCircle2 className="h-4 w-4 text-emerald-400" /> : <Copy className="h-4 w-4" />}
               </button>
             </div>
           </div>
@@ -2807,30 +3027,81 @@ function ProfilePage({ currentUser, balance, tradeHistory, onLogout, setActivePa
   );
 }
 
-function Footer() {
+function Footer({ onNavigate }) {
+  const navigate = useNavigate();
+  // Page ids go through the in-app switcher; "/paths" are real routes.
   const cols = [
-    { title: "Platform",      links: ["Trade Desk", "Binary Desk", "Portfolio", "Live Markets"] },
-    { title: "Support",       links: ["Help Center", "Contact Desk", "System Status", "Security", "Live Chat"] },
-    { title: "Company",       links: ["About Bitloom", "Insights", "Careers", "Press", "Partners"] },
-    { title: "Legal",         links: ["Terms of Use", "Privacy Policy", "Cookie Policy", "AML Policy", "Risk Disclosure"] },
+    {
+      title: "Platform",
+      links: [
+        { label: "Trade Desk",   to: "futures"  },
+        { label: "Portfolio",    to: "assets"   },
+        { label: "Live Markets", to: "markets"  },
+        { label: "Deposit",      to: "/deposit" },
+      ],
+    },
+    {
+      title: "Support",
+      links: [
+        { label: "Help Center",  to: "/contact-care" },
+        { label: "Contact Desk", to: "/contact-care" },
+        { label: "Live Chat",    to: "/contact-care" },
+        { label: "Withdraw",     to: "/withdraw"     },
+      ],
+    },
+    {
+      title: "Company",
+      links: [
+        { label: "About Bitloom", to: "about" },
+        { label: "Insights",      to: "about" },
+        { label: "Careers",       to: "about" },
+        { label: "Partners",      to: "about" },
+      ],
+    },
+    {
+      title: "Legal",
+      links: [
+        { label: "Terms of Use",    to: "about" },
+        { label: "Privacy Policy",  to: "about" },
+        { label: "AML Policy",      to: "about" },
+        { label: "Risk Disclosure", to: "about" },
+      ],
+    },
   ];
+
+  const go = (to) => {
+    if (to.startsWith("/")) {
+      navigate(to);
+      return;
+    }
+    onNavigate?.(to);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
   return (
-    <footer className="mt-6 rounded-2xl border border-slate-800/80 bg-[#080d16]/90 p-5 sm:mt-8 sm:p-8">
-      <div className="mb-8 grid grid-cols-2 gap-6 sm:gap-8 lg:grid-cols-4">
+    <footer className="mt-4 rounded-2xl border border-slate-800/80 bg-[#080d16]/90 p-5 sm:mt-6 sm:p-6">
+      <div className="mb-5 grid grid-cols-2 gap-5 sm:gap-6 lg:grid-cols-4">
         {cols.map((col) => (
           <div key={col.title}>
-            <h4 className="text-white font-semibold mb-4 tracking-tight">{col.title}</h4>
-            <ul className="space-y-2.5">
+            <h4 className="mb-2 font-semibold tracking-tight text-white">{col.title}</h4>
+            <ul>
               {col.links.map((link) => (
-                <li key={link}>
-                  <button className="text-slate-500 hover:text-sky-300 text-sm transition text-left">{link}</button>
+                <li key={link.label}>
+                  {/* 40px tap target on touch, tighter on desktop where it is a pointer */}
+                  <button
+                    type="button"
+                    onClick={() => go(link.to)}
+                    className="flex min-h-[40px] w-full cursor-pointer items-center text-left text-sm text-slate-500 transition hover:text-sky-300 active:text-sky-300 sm:min-h-0 sm:py-1"
+                  >
+                    {link.label}
+                  </button>
                 </li>
               ))}
             </ul>
           </div>
         ))}
       </div>
-      <div className="border-t border-slate-800 pt-6 flex flex-col md:flex-row items-center justify-between gap-4">
+      <div className="flex flex-col items-center justify-between gap-3 border-t border-slate-800 pt-4 md:flex-row">
         <div className="flex items-center gap-3">
           <img src={logoMark} alt="Bitloom" className="h-7 w-7 rounded-lg object-cover ring-1 ring-sky-400/30" />
           <div>
@@ -2872,10 +3143,28 @@ function LoginPage({ onLogin, setActivePage }) {
   const [password, setPassword] = useState("");
   const [showPass, setShowPass] = useState(false);
   const [error, setError]       = useState("");
+  const [notice, setNotice]     = useState("");
   const [loading, setLoading]   = useState(false);
+
+  const handleReset = async () => {
+    if (!email) { setError("Enter your email above first, then tap Forgot password."); return; }
+    setLoading(true);
+    setError("");
+    setNotice("");
+    try {
+      await sendPasswordResetEmail(auth, email);
+      setNotice(`Password reset link sent to ${email}.`);
+    } catch (err) {
+      const msg = fbErr(err);
+      if (msg) setError(msg);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setNotice("");
     if (!email || !password) { setError("Please fill in all fields."); return; }
     setLoading(true);
     setError("");
@@ -2918,6 +3207,9 @@ function LoginPage({ onLogin, setActivePage }) {
           {error && (
             <div className="mb-4 p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-sm">{error}</div>
           )}
+          {notice && (
+            <div className="mb-4 rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-3 text-sm text-emerald-400">{notice}</div>
+          )}
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="text-xs text-slate-500 block mb-1.5">Email</label>
@@ -2945,7 +3237,7 @@ function LoginPage({ onLogin, setActivePage }) {
               <label className="flex items-center gap-2 text-slate-400 cursor-pointer select-none">
                 <input type="checkbox" className="rounded" /> Remember me
               </label>
-              <button type="button" className="text-sky-400 hover:text-sky-300 transition">Forgot password?</button>
+              <button type="button" onClick={handleReset} className="cursor-pointer text-sky-400 transition hover:text-sky-300">Forgot password?</button>
             </div>
             <button type="submit" disabled={loading}
               className="w-full py-3 rounded-2xl bg-sky-500 text-black font-black text-sm hover:bg-sky-400 active:scale-95 transition-all disabled:opacity-60 shadow-lg shadow-sky-500/25 hover:shadow-sky-500/40 cursor-pointer">
@@ -3184,7 +3476,6 @@ function TradingProductsSection() {
   const products = [
     { title: "Spot Desk",        desc: "Execute on major pairs with live marks and clear market context.",  icon: <BarChart3 className="h-6 w-6" />,      accent: "amber"  },
     { title: "Trade Desk",       desc: "Perpetual-style workspace with leverage controls and live charts.", icon: <TrendingUp className="h-6 w-6" />,     accent: "blue"   },
-    { title: "Binary Desk",      desc: "Short-duration Up/Down strategies with fixed payout schedules.",   icon: <Zap className="h-6 w-6" />,            accent: "purple" },
     { title: "Portfolio",        desc: "Balances, activity, and P&L in one institutional overview.",       icon: <PieChart className="h-6 w-6" />,       accent: "rose"   },
     { title: "Market Analytics", desc: "Charts, signals, and market structure tools in real time.",         icon: <Activity className="h-6 w-6" />,       accent: "cyan"   },
     { title: "Client Desk",      desc: "Deposit, withdraw, and support flows with clear status tracking.", icon: <Users className="h-6 w-6" />,          accent: "green"  },
@@ -3358,7 +3649,7 @@ function MarketHeatmapSection({ livePairs = [] }) {
 }
 
 // ─── ABOUT PAGE ────────────────────────────────────────────────────────────────
-function AboutPage() {
+function AboutPage({ setActivePage }) {
   const stats = [
     { label: "Active Users",   value: "2M+"    },
     { label: "Countries",      value: "100+"   },
@@ -3391,10 +3682,12 @@ function AboutPage() {
           </div>
           {/* CTA buttons */}
           <div className="mt-8 flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center">
-            <button className="cursor-pointer rounded-xl bg-sky-500 px-6 py-3 text-sm font-bold text-slate-950 shadow-lg shadow-sky-500/20 transition hover:bg-sky-400">
+            <button type="button" onClick={() => setActivePage?.("futures")}
+              className="cursor-pointer rounded-xl bg-sky-500 px-6 py-3 text-sm font-bold text-slate-950 shadow-lg shadow-sky-500/20 transition hover:bg-sky-400">
               Launch trade desk
             </button>
-            <button className="cursor-pointer rounded-xl border border-slate-800 bg-slate-900 px-6 py-3 text-sm font-semibold text-slate-300 transition hover:border-slate-700">
+            <button type="button" onClick={() => setActivePage?.("markets")}
+              className="cursor-pointer rounded-xl border border-slate-800 bg-slate-900 px-6 py-3 text-sm font-semibold text-slate-300 transition hover:border-slate-700">
               View markets
             </button>
           </div>
@@ -3482,14 +3775,25 @@ function useBinancePrices() {
   return prices;
 }
 
-function useLivePrice(initialPair, livePairs = []) {
+function useLivePrice(initialPair, livePairs = [], focusPair = null) {
   const [selected, setSelected] = useState(initialPair);
   const [prevSelected, setPrevSelected] = useState(initialPair);
   const [livePrice, setLivePrice] = useState(initialPair.price);
+  const [appliedFocus, setAppliedFocus] = useState(null);
 
   if (selected !== prevSelected) {
     setPrevSelected(selected);
     setLivePrice(selected.price);
+  }
+
+  // Header search asks for a pair: apply it once per pick (same render-phase
+  // derived-state pattern as above, so it lands before paint).
+  if (focusPair && focusPair.at !== appliedFocus) {
+    const wanted = livePairs.find((p) => p.symbol === focusPair.symbol);
+    if (wanted) {
+      setAppliedFocus(focusPair.at);
+      setSelected(wanted);
+    }
   }
 
   // Sync from Binance live data when available
@@ -3513,8 +3817,8 @@ function useLivePrice(initialPair, livePairs = []) {
 }
 
 // ── MARKETS ──────────────────────────────────────────────────────────────────
-function MarketsPage({ livePairs = pairs }) {
-  const { selected, setSelected, livePrice, displayPair } = useLivePrice(livePairs[0] || pairs[0], livePairs);
+function MarketsPage({ livePairs = pairs, focusPair = null }) {
+  const { selected, setSelected, livePrice, displayPair } = useLivePrice(livePairs[0] || pairs[0], livePairs, focusPair);
   const ranked = useMemo(
     () => [...livePairs].sort((a, b) => Math.abs(b.change ?? 0) - Math.abs(a.change ?? 0)),
     [livePairs]
@@ -3534,25 +3838,30 @@ function MarketsPage({ livePairs = pairs }) {
 
   return (
     <div className="space-y-3">
-      <div className="grid grid-cols-1 gap-3 xl:grid-cols-[250px_minmax(0,1fr)_280px] xl:min-h-[740px] xl:items-stretch">
-        <aside className="flex max-h-[280px] flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 sm:max-h-[360px] xl:max-h-none xl:min-h-0">
-          <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
-            <h2 className="font-bold text-white">Markets</h2>
-            <span className="text-[10px] font-semibold uppercase tracking-wide text-sky-400">{livePairs.length} pairs</span>
+      {/* Columns size to their own content — the chart column now carries the
+          stat panels, so nothing needs stretching to a fixed height. */}
+      <div className="grid grid-cols-1 gap-3 xl:grid-cols-[250px_minmax(0,1fr)_280px] xl:items-start">
+        <aside className="flex flex-col gap-3">
+          <div className="flex max-h-[280px] flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 sm:max-h-[360px] xl:max-h-none">
+            <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
+              <h2 className="font-bold text-white">Markets</h2>
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-sky-400">{livePairs.length} pairs</span>
+            </div>
+            <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
+              {livePairs.map((pair) => (
+                <PairCard
+                  key={pair.symbol}
+                  pair={pair.symbol === selected.symbol ? displayPair : pair}
+                  active={pair.symbol === selected.symbol}
+                  onClick={() => setSelected(pair)}
+                />
+              ))}
+            </div>
           </div>
-          <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
-            {livePairs.map((pair) => (
-              <PairCard
-                key={pair.symbol}
-                pair={pair.symbol === selected.symbol ? displayPair : pair}
-                active={pair.symbol === selected.symbol}
-                onClick={() => setSelected(pair)}
-              />
-            ))}
-          </div>
+          <FearGreedWidget />
         </aside>
 
-        <section className="flex min-h-[320px] flex-col gap-3 sm:min-h-[420px] xl:min-h-0">
+        <section className="flex flex-col gap-3">
           <div className="rounded-2xl border border-slate-800 bg-slate-950 px-3 py-3 sm:px-4">
             <div className="flex flex-wrap items-end gap-2 sm:gap-3">
               <div>
@@ -3580,122 +3889,117 @@ function MarketsPage({ livePairs = pairs }) {
               </div>
             </div>
           </div>
-          <div className="min-h-0 flex-1">
-            <ChartPanel symbol={selected.symbol} fill />
+          <ChartPanel symbol={selected.symbol} />
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-4">
+            <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4">
+              <h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-white">
+                <Activity className="h-4 w-4 text-sky-400" /> Sentiment
+              </h3>
+              <div className="mb-2 flex h-2.5 overflow-hidden rounded-full bg-slate-800">
+                <div className="h-full bg-emerald-500" style={{ width: "64%" }} />
+                <div className="h-full bg-rose-500" style={{ width: "36%" }} />
+              </div>
+              <div className="mb-3 flex justify-between text-xs">
+                <span className="font-bold text-emerald-400">64% Buy</span>
+                <span className="font-bold text-rose-400">36% Sell</span>
+              </div>
+              <div className="space-y-2 text-xs text-slate-500">
+                {ranked.slice(0, 4).map((p) => {
+                  const pct = Math.min(92, Math.max(18, 50 + (p.change ?? 0) * 8));
+                  const up = pct >= 50;
+                  return (
+                    <div key={p.symbol}>
+                      <div className="mb-1 flex justify-between">
+                        <span>{p.symbol.replace("USDT", "")}</span>
+                        <span className={up ? "text-emerald-400" : "text-rose-400"}>{pct.toFixed(0)}%</span>
+                      </div>
+                      <div className="h-1.5 overflow-hidden rounded-full bg-slate-800">
+                        <div className={`h-full rounded-full ${up ? "bg-emerald-500" : "bg-rose-500"}`} style={{ width: `${pct}%` }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4">
+              <h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-white">
+                <TrendingUp className="h-4 w-4 text-emerald-400" /> Leaders
+              </h3>
+              <div className="space-y-1.5">
+                {gainers.map((p) => (
+                  <button key={`g-${p.symbol}`} type="button" onClick={() => setSelected(p)}
+                    className="flex w-full cursor-pointer items-center justify-between rounded-lg px-2 py-1.5 text-left hover:bg-slate-900/70">
+                    <span className="text-xs font-semibold text-white">{p.symbol.replace("USDT", "")}</span>
+                    <span className="text-xs font-bold tabular-nums text-emerald-400">
+                      {(p.change ?? 0) >= 0 ? "+" : ""}{(p.change ?? 0).toFixed(2)}%
+                    </span>
+                  </button>
+                ))}
+              </div>
+              <div className="mt-3 space-y-1.5 border-t border-slate-800 pt-2">
+                {losers.slice(0, 3).map((p) => (
+                  <button key={`l-${p.symbol}`} type="button" onClick={() => setSelected(p)}
+                    className="flex w-full cursor-pointer items-center justify-between rounded-lg px-2 py-1.5 text-left hover:bg-slate-900/70">
+                    <span className="text-xs font-semibold text-white">{p.symbol.replace("USDT", "")}</span>
+                    <span className="text-xs font-bold tabular-nums text-rose-400">
+                      {(p.change ?? 0) >= 0 ? "+" : ""}{(p.change ?? 0).toFixed(2)}%
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4">
+              <h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-white">
+                <Layers className="h-4 w-4 text-sky-400" /> Session
+              </h3>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { label: "Long / Short", value: "58 / 42" },
+                  { label: "OI Change 1h", value: "+1.24%", up: true },
+                  { label: "Basis", value: "+0.02%" },
+                  { label: "Spread", value: "0.8 bps" },
+                  { label: "Maker Fee", value: "0.02%" },
+                  { label: "Taker Fee", value: "0.04%" },
+                ].map((s) => (
+                  <div key={s.label} className="rounded-lg border border-slate-800 bg-slate-900/50 p-2.5">
+                    <div className="text-[10px] text-slate-500">{s.label}</div>
+                    <div className={`mt-0.5 text-sm font-bold tabular-nums ${s.up ? "text-emerald-400" : "text-white"}`}>{s.value}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4">
+              <h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-white">
+                <Globe className="h-4 w-4 text-sky-400" /> Global
+              </h3>
+              <div className="space-y-2.5">
+                {[
+                  { label: "Market Cap", value: "$3.12T", up: true },
+                  { label: "24h Volume", value: "$142.8B", up: true },
+                  { label: "BTC Dominance", value: "54.2%" },
+                  { label: "Open Interest", value: "$48.6B", up: true },
+                  { label: "Liquidations 24h", value: "$186M", up: false },
+                  { label: "Fear & Greed", value: "62 · Greed", up: true },
+                ].map((s) => (
+                  <div key={s.label} className="flex items-center justify-between text-xs">
+                    <span className="text-slate-500">{s.label}</span>
+                    <span className={`font-bold tabular-nums ${s.up === true ? "text-emerald-400" : s.up === false ? "text-rose-400" : "text-slate-300"}`}>{s.value}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         </section>
 
-        <aside className="flex min-h-0 flex-col gap-3 xl:min-h-0">
-          <div className="min-h-[280px] xl:min-h-0 xl:flex-[1.35]">
-            <OrderBook mid={livePrice} />
-          </div>
-          <div className="h-[220px] shrink-0 overflow-hidden sm:h-[260px] xl:h-auto xl:flex-1">
+        <aside className="flex flex-col gap-3">
+          <OrderBook mid={livePrice} />
+          <div className="h-[220px] shrink-0 sm:h-[260px] xl:h-[380px]">
             <TradesFeed mid={livePrice} />
           </div>
         </aside>
-      </div>
-
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4">
-          <h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-white">
-            <Activity className="h-4 w-4 text-sky-400" /> Sentiment
-          </h3>
-          <div className="mb-2 flex h-2.5 overflow-hidden rounded-full bg-slate-800">
-            <div className="h-full bg-emerald-500" style={{ width: "64%" }} />
-            <div className="h-full bg-rose-500" style={{ width: "36%" }} />
-          </div>
-          <div className="mb-3 flex justify-between text-xs">
-            <span className="font-bold text-emerald-400">64% Buy</span>
-            <span className="font-bold text-rose-400">36% Sell</span>
-          </div>
-          <div className="space-y-2 text-xs text-slate-500">
-            {ranked.slice(0, 4).map((p) => {
-              const pct = Math.min(92, Math.max(18, 50 + (p.change ?? 0) * 8));
-              const up = pct >= 50;
-              return (
-                <div key={p.symbol}>
-                  <div className="mb-1 flex justify-between">
-                    <span>{p.symbol.replace("USDT", "")}</span>
-                    <span className={up ? "text-emerald-400" : "text-rose-400"}>{pct.toFixed(0)}%</span>
-                  </div>
-                  <div className="h-1.5 overflow-hidden rounded-full bg-slate-800">
-                    <div className={`h-full rounded-full ${up ? "bg-emerald-500" : "bg-rose-500"}`} style={{ width: `${pct}%` }} />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4">
-          <h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-white">
-            <TrendingUp className="h-4 w-4 text-emerald-400" /> Leaders
-          </h3>
-          <div className="space-y-1.5">
-            {gainers.map((p) => (
-              <button key={`g-${p.symbol}`} type="button" onClick={() => setSelected(p)}
-                className="flex w-full cursor-pointer items-center justify-between rounded-lg px-2 py-1.5 text-left hover:bg-slate-900/70">
-                <span className="text-xs font-semibold text-white">{p.symbol.replace("USDT", "")}</span>
-                <span className="text-xs font-bold tabular-nums text-emerald-400">
-                  {(p.change ?? 0) >= 0 ? "+" : ""}{(p.change ?? 0).toFixed(2)}%
-                </span>
-              </button>
-            ))}
-          </div>
-          <div className="mt-3 space-y-1.5 border-t border-slate-800 pt-2">
-            {losers.slice(0, 3).map((p) => (
-              <button key={`l-${p.symbol}`} type="button" onClick={() => setSelected(p)}
-                className="flex w-full cursor-pointer items-center justify-between rounded-lg px-2 py-1.5 text-left hover:bg-slate-900/70">
-                <span className="text-xs font-semibold text-white">{p.symbol.replace("USDT", "")}</span>
-                <span className="text-xs font-bold tabular-nums text-rose-400">
-                  {(p.change ?? 0) >= 0 ? "+" : ""}{(p.change ?? 0).toFixed(2)}%
-                </span>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4">
-          <h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-white">
-            <Layers className="h-4 w-4 text-sky-400" /> Session
-          </h3>
-          <div className="grid grid-cols-2 gap-2">
-            {[
-              { label: "Long / Short", value: "58 / 42" },
-              { label: "OI Change 1h", value: "+1.24%", up: true },
-              { label: "Basis", value: "+0.02%" },
-              { label: "Spread", value: "0.8 bps" },
-              { label: "Maker Fee", value: "0.02%" },
-              { label: "Taker Fee", value: "0.04%" },
-            ].map((s) => (
-              <div key={s.label} className="rounded-lg border border-slate-800 bg-slate-900/50 p-2.5">
-                <div className="text-[10px] text-slate-500">{s.label}</div>
-                <div className={`mt-0.5 text-sm font-bold tabular-nums ${s.up ? "text-emerald-400" : "text-white"}`}>{s.value}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4">
-          <h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-white">
-            <Globe className="h-4 w-4 text-sky-400" /> Global
-          </h3>
-          <div className="space-y-2.5">
-            {[
-              { label: "Market Cap", value: "$3.12T", up: true },
-              { label: "24h Volume", value: "$142.8B", up: true },
-              { label: "BTC Dominance", value: "54.2%" },
-              { label: "Open Interest", value: "$48.6B", up: true },
-              { label: "Liquidations 24h", value: "$186M", up: false },
-              { label: "Fear & Greed", value: "62 · Greed", up: true },
-            ].map((s) => (
-              <div key={s.label} className="flex items-center justify-between text-xs">
-                <span className="text-slate-500">{s.label}</span>
-                <span className={`font-bold tabular-nums ${s.up === true ? "text-emerald-400" : s.up === false ? "text-rose-400" : "text-slate-300"}`}>{s.value}</span>
-              </div>
-            ))}
-          </div>
-        </div>
       </div>
 
       <div className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-950">
@@ -3802,10 +4106,7 @@ function MarketsPage({ livePairs = pairs }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-        <FearGreedWidget />
-        <NewsFeed />
-      </div>
+      <NewsFeed />
       <FundingRateWidget />
       <LiquidationTracker />
       <MarketHeatmapSection livePairs={livePairs} />
@@ -3816,11 +4117,14 @@ function MarketsPage({ livePairs = pairs }) {
 
 
 // ── FUTURES ───────────────────────────────────────────────────────────────────
-function FuturesPage({ balance, onTradeDone, onBalanceChange, currentUser, tradeHistory, livePairs = pairs }) {
+function FuturesPage({ balance, onTradeDone, onBalanceChange, currentUser, tradeHistory, livePairs = pairs, setActivePage }) {
+  const navigate = useNavigate();
   const { selected, setSelected, livePrice, displayPair } = useLivePrice(livePairs[0] || pairs[0], livePairs);
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-1 xl:grid-cols-[220px_1fr_300px] gap-4">
+      {/* items-start: columns keep their own height instead of being padded out
+          to match the tallest one, which is what left the dead space below them. */}
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[210px_1fr_360px] xl:items-start">
         <aside className="space-y-3">
           <div className="flex items-center justify-between px-1">
             <h2 className="text-white font-bold text-sm">Perpetual Futures</h2>
@@ -3870,18 +4174,22 @@ function FuturesPage({ balance, onTradeDone, onBalanceChange, currentUser, trade
             </h3>
             <div className="grid grid-cols-2 gap-2">
               {[
-                { label: "Deposit",    icon: <Wallet className="h-4 w-4" />,     color: "text-sky-400 border-sky-500/20 hover:border-sky-500/40 hover:bg-sky-500/5" },
-                { label: "History",   icon: <Clock className="h-4 w-4" />,       color: "text-slate-400 border-slate-700 hover:border-slate-600 hover:bg-slate-800/50" },
-                { label: "Analytics", icon: <BarChart3 className="h-4 w-4" />,   color: "text-slate-400 border-slate-700 hover:border-slate-600 hover:bg-slate-800/50" },
-                { label: "Support",   icon: <MessageCircle className="h-4 w-4" />, color: "text-slate-400 border-slate-700 hover:border-slate-600 hover:bg-slate-800/50" },
+                { label: "Deposit",   icon: <Wallet className="h-4 w-4" />,        color: "text-sky-400 border-sky-500/20 hover:border-sky-500/40 hover:bg-sky-500/5",     action: () => navigate("/deposit")        },
+                { label: "History",   icon: <Clock className="h-4 w-4" />,         color: "text-slate-400 border-slate-700 hover:border-slate-600 hover:bg-slate-800/50",  action: () => setActivePage?.("assets")   },
+                { label: "Analytics", icon: <BarChart3 className="h-4 w-4" />,     color: "text-slate-400 border-slate-700 hover:border-slate-600 hover:bg-slate-800/50",  action: () => setActivePage?.("markets")  },
+                { label: "Support",   icon: <MessageCircle className="h-4 w-4" />, color: "text-slate-400 border-slate-700 hover:border-slate-600 hover:bg-slate-800/50",  action: () => window.dispatchEvent(new CustomEvent("bitloom:open-chat")) },
               ].map((a) => (
-                <button key={a.label} className={`flex flex-col items-center gap-1.5 py-3 rounded-xl border text-xs font-semibold transition cursor-pointer ${a.color}`}>
+                <button key={a.label} type="button" onClick={a.action}
+                  className={`flex flex-col items-center gap-1.5 py-3 rounded-xl border text-xs font-semibold transition cursor-pointer ${a.color}`}>
                   {a.icon}
                   {a.label}
                 </button>
               ))}
             </div>
           </div>
+
+          {/* Sits with the other account panels and keeps this column level with the chart */}
+          <RiskOverview />
         </aside>
         <section className="space-y-4">
           <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}>
@@ -3917,7 +4225,11 @@ function FuturesPage({ balance, onTradeDone, onBalanceChange, currentUser, trade
             currentUser={currentUser}
           />
           <OrderBook mid={livePrice} />
-          <TradesFeed mid={livePrice} />
+          {/* Bounded: unconstrained it renders the whole feed and runs far past
+              the other two columns. It scrolls internally. */}
+          <div className="h-[320px]">
+            <TradesFeed mid={livePrice} />
+          </div>
         </aside>
       </div>
       <ProfitHistoryTable trades={tradeHistory} />
@@ -3926,17 +4238,15 @@ function FuturesPage({ balance, onTradeDone, onBalanceChange, currentUser, trade
         <FundingRateWidget />
         <LiquidationTracker />
       </div>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <RiskOverview />
-        <NewsFeed />
-      </div>
+      <NewsFeed />
       <GlobalStatsBar />
     </div>
   );
 }
 
 // ── ASSETS ────────────────────────────────────────────────────────────────────
-function AssetsPage({ balance, tradeHistory, transactions, livePairs = pairs }) {
+function AssetsPage({ balance, tradeHistory, transactions, livePairs = pairs, setActivePage }) {
+  const navigate = useNavigate();
   const holdings = [
     { asset: "USDT", name: "Tether",    balance: formatPrice(balance), value: `$${formatPrice(balance)}`, change: "0.00%"  },
     { asset: "BTC",  name: "Bitcoin",   balance: "0.0000",             value: "$0.00",                    change: "+2.14%" },
@@ -3999,8 +4309,10 @@ function AssetsPage({ balance, tradeHistory, transactions, livePairs = pairs }) 
                   <td className={`px-5 py-4 font-semibold ${h.change.startsWith("+") ? "text-emerald-400" : h.change === "0.00%" ? "text-slate-400" : "text-rose-400"}`}>{h.change}</td>
                   <td className="px-5 py-4">
                     <div className="flex gap-2">
-                      <button className="px-3 py-1 rounded-lg bg-emerald-500/10 text-emerald-400 text-xs font-semibold hover:bg-emerald-500/20 transition">Trade</button>
-                      <button className="px-3 py-1 rounded-lg bg-slate-900 text-slate-400 text-xs font-semibold hover:bg-slate-800 transition">Transfer</button>
+                      <button type="button" onClick={() => setActivePage?.("futures")}
+                        className="cursor-pointer px-3 py-1 rounded-lg bg-emerald-500/10 text-emerald-400 text-xs font-semibold hover:bg-emerald-500/20 transition">Trade</button>
+                      <button type="button" onClick={() => navigate("/deposit")}
+                        className="cursor-pointer px-3 py-1 rounded-lg bg-slate-900 text-slate-400 text-xs font-semibold hover:bg-slate-800 transition">Deposit</button>
                     </div>
                   </td>
                 </tr>
@@ -4033,7 +4345,7 @@ function AssetsPage({ balance, tradeHistory, transactions, livePairs = pairs }) 
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5">
           {livePairs.map((p) => (
             <div key={p.symbol} className="rounded-2xl bg-slate-900/60 border border-slate-800 hover:border-slate-700 transition p-3 sm:p-4 text-center cursor-pointer"
-              onClick={() => {}}>
+              onClick={() => setActivePage?.("futures")}>
               <div className="mb-1 truncate text-xs text-slate-500">{p.symbol}</div>
               <div className="text-white font-black tabular-nums text-sm">{formatPrice(p.price)}</div>
               <div className={`text-xs font-bold mt-1 ${(p.change ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
@@ -4049,12 +4361,11 @@ function AssetsPage({ balance, tradeHistory, transactions, livePairs = pairs }) 
         <h3 className="text-white font-bold mb-4 flex items-center gap-2">
           <Zap className="h-4 w-4 text-sky-400" /> Quick Actions
         </h3>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           {[
-            { label: "Deposit",   sub: "Add funds",         icon: <ArrowUpRight className="h-5 w-5" />,  color: "bg-sky-500/10 border-sky-500/30 text-sky-400 hover:bg-sky-500/20",  action: () => navigate('/deposit')  },
-            { label: "Withdraw",  sub: "Send to wallet",    icon: <ArrowDownRight className="h-5 w-5" />, color: "bg-rose-500/10 border-rose-500/30 text-rose-400 hover:bg-rose-500/20",     action: () => navigate('/withdraw') },
-            { label: "Trade",     sub: "Futures market",    icon: <BarChart3 className="h-5 w-5" />,     color: "bg-blue-500/10 border-blue-500/30 text-blue-400 hover:bg-blue-500/20",     action: () => {}                    },
-            { label: "Transfer",  sub: "Between accounts",  icon: <RefreshCw className="h-5 w-5" />,     color: "bg-slate-700/40 border-slate-700 text-slate-400 hover:bg-slate-700/60",    action: () => {}                    },
+            { label: "Deposit",   sub: "Add funds",       icon: <ArrowUpRight className="h-5 w-5" />,   color: "bg-sky-500/10 border-sky-500/30 text-sky-400 hover:bg-sky-500/20",   action: () => navigate('/deposit')     },
+            { label: "Withdraw",  sub: "Send to wallet",  icon: <ArrowDownRight className="h-5 w-5" />, color: "bg-rose-500/10 border-rose-500/30 text-rose-400 hover:bg-rose-500/20", action: () => navigate('/withdraw')    },
+            { label: "Trade",     sub: "Futures market",  icon: <BarChart3 className="h-5 w-5" />,      color: "bg-blue-500/10 border-blue-500/30 text-blue-400 hover:bg-blue-500/20", action: () => setActivePage?.("futures") },
           ].map((a) => (
             <button key={a.label} onClick={a.action}
               className={`flex flex-col items-center gap-2 py-5 rounded-2xl border transition cursor-pointer ${a.color}`}>
@@ -4079,7 +4390,6 @@ function AssetsPage({ balance, tradeHistory, transactions, livePairs = pairs }) 
             {[
               { label: "Email Verification",  done: true,  detail: "Verified"            },
               { label: "2FA Authentication",  done: false, detail: "Not enabled"          },
-              { label: "KYC Verification",    done: false, detail: "Upgrade required"     },
               { label: "Withdrawal Whitelist",done: true,  detail: "Active"               },
               { label: "Anti-phishing Code",  done: false, detail: "Not configured"       },
             ].map((item) => (
@@ -4094,7 +4404,7 @@ function AssetsPage({ balance, tradeHistory, transactions, livePairs = pairs }) 
               </div>
             ))}
           </div>
-          <button onClick={() => {}}
+          <button type="button" onClick={() => setActivePage?.("profile")}
             className="mt-4 w-full py-2.5 rounded-2xl border border-sky-500/30 text-sky-400 text-xs font-bold hover:bg-sky-500/10 transition cursor-pointer">
             Improve Security Score
           </button>
@@ -4144,9 +4454,16 @@ function AssetsPage({ balance, tradeHistory, transactions, livePairs = pairs }) 
         </div>
         <div className="flex items-center gap-3 flex-shrink-0">
           <div className="rounded-2xl bg-slate-900 border border-slate-800 px-4 py-2.5 font-mono text-sky-400 text-sm font-bold tracking-wider">
-            Bitloom-REF-2025
+            {REFERRAL_CODE}
           </div>
-          <button className="px-5 py-2.5 rounded-2xl bg-sky-500 text-black font-black text-sm hover:bg-sky-400 transition shadow-lg shadow-sky-500/25 cursor-pointer flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              const text = `Join me on Bitloom — use my referral code ${REFERRAL_CODE}`;
+              if (navigator.share) navigator.share({ title: "Bitloom", text }).catch(() => {});
+              else navigator.clipboard?.writeText(text);
+            }}
+            className="px-5 py-2.5 rounded-2xl bg-sky-500 text-black font-black text-sm hover:bg-sky-400 transition shadow-lg shadow-sky-500/25 cursor-pointer flex items-center gap-2">
             <Share2 className="h-4 w-4" /> Share
           </button>
         </div>
@@ -4164,6 +4481,8 @@ function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
   const [balance, setBalance] = useState(0);
+  const [balanceError, setBalanceError] = useState("");
+  const [focusPair, setFocusPair] = useState(null);   // set by the header market search
   const [tradeHistory, setTradeHistory] = useState([]);
   const [transactions, setTransactions] = useState(INITIAL_TRANSACTIONS);
   const [adminState, setAdminState] = useState({ open: false, loggedIn: false, credentials: null });
@@ -4179,32 +4498,61 @@ function App() {
     [binancePrices]
   );
 
+  // Balance is server-owned. /api/me reads it through the Admin SDK, which is the
+  // only path that works: Firestore rules deny the browser direct access to
+  // users/{uid}, so the client SDK cannot see admin credits at all.
+  const refreshBalance = useCallback(async (user = auth.currentUser) => {
+    if (!user) return null;
+    try {
+      const me = await fetchMe(user);
+      setBalance(Number(me.balance) || 0);
+      setBalanceError("");
+      return me;
+    } catch (err) {
+      // Never fail silently to $0 — that is what hid this for so long.
+      setBalanceError(err.message || "Could not load balance");
+      console.error("[balance] refresh failed:", err);
+      return null;
+    }
+  }, []);
+
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (user) => {
       setIsLoggedIn(!!user);
       setCurrentUser(user);
-      if (user) {
-        try {
-          await loadUserProfile(user.uid, { email: user.email, displayName: user.displayName });
-          try {
-            const me = await fetchMe(user);
-            setBalance(Number(me.balance) || 0);
-          } catch {
-            const profile = await loadUserProfile(user.uid, { email: user.email, displayName: user.displayName });
-            setBalance(profile?.balance || 0);
-          }
-          const trades = await loadTrades(user.uid);
-          setTradeHistory(trades || []);
-        } catch (e) {
-          console.error(e);
-        }
-      } else {
+      if (!user) {
         setBalance(0);
+        setBalanceError("");
+        setTradeHistory([]);
+        return;
+      }
+
+      await refreshBalance(user);
+
+      // Best-effort and deliberately separate: trade history is read with the
+      // client SDK, so it must never be able to blank out the balance above.
+      try {
+        setTradeHistory((await loadTrades(user.uid)) || []);
+      } catch (e) {
+        console.error("[trades] load failed:", e);
         setTradeHistory([]);
       }
     });
     return () => unsub();
-  }, []);
+  }, [refreshBalance]);
+
+  // An admin can credit the account while this tab is open — re-check on return.
+  useEffect(() => {
+    const recheck = () => {
+      if (document.visibilityState === "visible") refreshBalance();
+    };
+    window.addEventListener("focus", recheck);
+    document.addEventListener("visibilitychange", recheck);
+    return () => {
+      window.removeEventListener("focus", recheck);
+      document.removeEventListener("visibilitychange", recheck);
+    };
+  }, [refreshBalance]);
 
   const handleLogout = async () => {
     await signOut(auth);
@@ -4219,7 +4567,7 @@ function App() {
   const renderContent = () => {
     switch (activePage) {
       case "markets":
-        return <MarketsPage livePairs={livePairs} />;
+        return <MarketsPage livePairs={livePairs} focusPair={focusPair} />;
       case "futures":
         return (
           <FuturesPage
@@ -4229,12 +4577,13 @@ function App() {
             onBalanceChange={setBalance}
             currentUser={currentUser}
             tradeHistory={tradeHistory}
+            setActivePage={setActivePage}
           />
         );
       case "assets":
-        return <AssetsPage livePairs={livePairs} balance={balance} tradeHistory={tradeHistory} transactions={transactions} />;
+        return <AssetsPage livePairs={livePairs} balance={balance} tradeHistory={tradeHistory} transactions={transactions} setActivePage={setActivePage} />;
       case "about":
-        return <AboutPage />;
+        return <AboutPage setActivePage={setActivePage} />;
       case "login":
         return <LoginPage onLogin={() => setActivePage("markets")} setActivePage={setActivePage} />;
       case "signup":
@@ -4247,7 +4596,7 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen overflow-x-hidden bg-[#080d16] text-white font-sans selection:bg-sky-500/25 relative">
+    <div className="relative min-h-screen overflow-x-hidden bg-[#080d16] pb-[calc(4.5rem+env(safe-area-inset-bottom))] font-sans text-white selection:bg-sky-500/25 lg:pb-0">
       {/* Soft institutional wash */}
       <div className="pointer-events-none fixed inset-0 overflow-hidden" style={{ zIndex: -1 }}>
         <div className="absolute -top-48 -left-32 h-[520px] w-[520px] rounded-full bg-sky-500/[0.07] blur-[100px]" />
@@ -4261,12 +4610,32 @@ function App() {
         currentUser={currentUser}
         onLogout={handleLogout}
         onAdminClick={() => setAdminState((s) => ({ ...s, open: true }))}
+        livePairs={livePairs}
+        onPickPair={(pair) => {
+          setFocusPair({ symbol: pair.symbol, at: Date.now() });
+          setActivePage("markets");
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        }}
       />
       <TickerBar livePairs={livePairs} />
-      <main className="mx-auto max-w-[1600px] px-3 pb-[calc(5.5rem+env(safe-area-inset-bottom))] pt-3 sm:px-4 sm:pt-4 md:p-6 lg:p-8 lg:pb-8">
+      {isLoggedIn && balanceError && (
+        <div className="mx-auto max-w-[1600px] px-3 pt-3 sm:px-4 md:px-6 lg:px-8">
+          <div className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-xs text-amber-300">
+            <span>Balance unavailable — {balanceError}</span>
+            <button
+              type="button"
+              onClick={() => refreshBalance()}
+              className="cursor-pointer rounded-lg border border-amber-500/40 px-2.5 py-1 font-semibold text-amber-200 hover:bg-amber-500/15"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      )}
+      <main className="mx-auto max-w-[1600px] px-3 pb-4 pt-3 sm:px-4 sm:pt-4 md:p-6 lg:p-8">
         {renderContent()}
       </main>
-      <Footer />
+      <Footer onNavigate={setActivePage} />
       {/* Admin login modal */}
       {adminState.open && !adminState.loggedIn && (
         <AdminLoginModal
