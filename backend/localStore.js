@@ -143,6 +143,56 @@ function freezeByEmail(email, frozen, { adminId }) {
   return { uid: user.uid, email: user.email, frozen: !!frozen, balance: Number(user.balance) || 0 };
 }
 
+// ─── PER-USER OUTCOME MODE ───────────────────────────────────────────────────
+// Each customer carries their own trade-outcome setting. "auto" (the default)
+// means the real market decides; an override only ever touches that one account.
+const PNL_MODES = ["auto", "win", "loss", "custom"];
+
+function readPnl(user) {
+  const mode = PNL_MODES.includes(user?.pnlMode) ? user.pnlMode : "auto";
+  const rate = Number(user?.pnlWinRate);
+  return { mode, customWinRate: Number.isFinite(rate) ? rate : 50 };
+}
+
+function getUserPnl(uid) {
+  const users = readJson(USERS_FILE, {});
+  return readPnl(users[uid]);
+}
+
+function setPnlByEmail(email, { mode, customWinRate }, { adminId } = {}) {
+  if (!PNL_MODES.includes(mode)) throw moneyError(`Mode must be one of ${PNL_MODES.join(", ")}`);
+  const user = findUserByEmail(email);
+  const rate = Number.isFinite(Number(customWinRate))
+    ? Math.min(100, Math.max(0, Number(customWinRate)))
+    : readPnl(user).customWinRate;
+  saveUser(user.uid, { pnlMode: mode, pnlWinRate: rate, pnlSetBy: adminId || null, pnlSetAt: new Date().toISOString() });
+  pushLedger({
+    uid: user.uid,
+    email: user.email,
+    type: "pnl_mode",
+    amount: 0,
+    balanceAfter: Number(user.balance) || 0,
+    adminId,
+    note: mode === "custom" ? `Outcome mode → custom ${rate}%` : `Outcome mode → ${mode}`,
+  });
+  return { uid: user.uid, email: user.email, mode, customWinRate: rate, balance: Number(user.balance) || 0 };
+}
+
+function listPnlOverrides() {
+  const users = readJson(USERS_FILE, {});
+  return Object.entries(users)
+    .filter(([, u]) => PNL_MODES.includes(u.pnlMode) && u.pnlMode !== "auto")
+    .map(([uid, u]) => ({
+      uid,
+      email: u.email,
+      balance: Number(u.balance) || 0,
+      ...readPnl(u),
+      setBy: u.pnlSetBy || null,
+      setAt: u.pnlSetAt || null,
+    }))
+    .sort((a, b) => String(b.setAt || "").localeCompare(String(a.setAt || "")));
+}
+
 function listRecentLedger(limit = 300) {
   return readJson(LEDGER_FILE, []).slice(0, limit);
 }
@@ -237,4 +287,8 @@ module.exports = {
   openTrade,
   settleTrade,
   pendingTrades,
+  getUserPnl,
+  setPnlByEmail,
+  listPnlOverrides,
+  PNL_MODES,
 };

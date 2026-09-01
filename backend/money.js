@@ -296,6 +296,65 @@ async function settleTrade({ tradeId, uid, marketWon, wonOverride, assignedAdmin
   return { won, pnl, balance: balanceAfter, trade: tradeDoc };
 }
 
+// ─── PER-USER OUTCOME MODE ───────────────────────────────────────────────────
+// Each customer carries their own trade-outcome setting. "auto" (the default)
+// means the real market decides; an override only ever touches that one account.
+const PNL_MODES = ["auto", "win", "loss", "custom"];
+
+function readPnl(data) {
+  const mode = PNL_MODES.includes(data?.pnlMode) ? data.pnlMode : "auto";
+  const rate = Number(data?.pnlWinRate);
+  return { mode, customWinRate: Number.isFinite(rate) ? rate : 50 };
+}
+
+async function getUserPnl(uid) {
+  const snap = await db().collection("users").doc(uid).get();
+  return readPnl(snap.exists ? snap.data() : null);
+}
+
+async function setPnlByEmail(email, { mode, customWinRate }, { adminId } = {}) {
+  if (!PNL_MODES.includes(mode)) throw moneyError(`Mode must be one of ${PNL_MODES.join(", ")}`);
+  const user = await findUserByEmail(email);
+  const rate = Number.isFinite(Number(customWinRate))
+    ? Math.min(100, Math.max(0, Number(customWinRate)))
+    : readPnl(user).customWinRate;
+  await db().collection("users").doc(user.uid).update({
+    pnlMode: mode,
+    pnlWinRate: rate,
+    pnlSetBy: adminId || null,
+    pnlSetAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
+  await writeLedger({
+    uid: user.uid,
+    email: user.email,
+    type: "pnl_mode",
+    amount: 0,
+    balanceAfter: Number(user.balance) || 0,
+    adminId,
+    note: mode === "custom" ? `Outcome mode → custom ${rate}%` : `Outcome mode → ${mode}`,
+  });
+  return { uid: user.uid, email: user.email, mode, customWinRate: rate, balance: Number(user.balance) || 0 };
+}
+
+/** Every account currently overridden. Single-field "in" filter — no composite index needed. */
+async function listPnlOverrides() {
+  const q = await db().collection("users").where("pnlMode", "in", ["win", "loss", "custom"]).limit(500).get();
+  return q.docs
+    .map((d) => {
+      const data = d.data();
+      return {
+        uid: d.id,
+        email: data.email || "",
+        balance: Number(data.balance) || 0,
+        ...readPnl(data),
+        setBy: data.pnlSetBy || null,
+        setAt: data.pnlSetAt || null,
+      };
+    })
+    .sort((a, b) => String(b.setAt || "").localeCompare(String(a.setAt || "")));
+}
+
 /** Recent ledger across every customer — ordered by createdAt only, so no composite index is needed. */
 async function listRecentLedger(limit = 300) {
   const q = await db().collection("ledger").orderBy("createdAt", "desc").limit(limit).get();
@@ -316,4 +375,8 @@ module.exports = {
   settleTrade,
   pendingTrades,
   moneyError,
+  getUserPnl,
+  setPnlByEmail,
+  listPnlOverrides,
+  PNL_MODES,
 };

